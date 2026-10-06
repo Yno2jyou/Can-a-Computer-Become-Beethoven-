@@ -50,6 +50,10 @@
     touch-action:none;-webkit-tap-highlight-color:transparent;user-select:none;
   }
   .wkey.seed{background:#EEE}
+  @keyframes freshW{from{background:#B8FFC8}to{background:#FFF}}
+  @keyframes freshB{from{background:#00AA22}to{background:#000}}
+  .wkey.fresh{animation:freshW 1.5s ease-out}
+  .bkey.fresh{animation:freshB 1.5s ease-out}
   .wkey.active{background:#00FF41;box-shadow:0 0 26px 2px rgba(0,255,65,.6)}
   #black-keys{position:absolute;top:0;left:0;right:0;height:62%;pointer-events:none}
   .bkey{
@@ -397,7 +401,11 @@ function downloadBlob(blob,filename){
 var UNIT=0.30;                       /* seconds per eighth note (quarter = 100bpm) */
 var NOTE_NAMES=['C','Db','D','Eb','E','F','F#','G','Ab','A','Bb','B'];
 var MODES={major:[0,2,4,5,7,9,11],minor:[0,2,3,5,7,8,10]};
-var LOW_MIDI=36,HIGH_MIDI=96;
+var LOW_MIDI=36,HIGH_MIDI=108;
+var MODE_EXTRA={dorian:[0,2,3,5,7,9,10],mixolydian:[0,2,4,5,7,9,10],lydian:[0,2,4,6,7,9,11],phrygian:[0,1,3,5,7,8,10],harmonic:[0,2,3,5,7,8,11]};
+for(var _mk in MODE_EXTRA)MODES[_mk]=MODE_EXTRA[_mk];
+function isBlackKey(m){return [1,3,6,8,10].indexOf(((m%12)+12)%12)>=0;}
+function kbRange(t){var e=1-Math.exp(-t/240),lo=Math.round(60-24*e),hi=Math.round(84+24*e);while(isBlackKey(lo))lo--;while(isBlackKey(hi))hi++;return[Math.max(LOW_MIDI,lo),Math.min(HIGH_MIDI,hi)];}
 var THEME_G=0.30;                    /* growth level at which a theme is fixed */
 var MAX_POP=16;
 
@@ -456,13 +464,14 @@ function nearestPC(prev,t){return t+7*Math.round((prev-t)/7);}
 var CELL_SIMPLE=[[2,2,2,2],[4,2,2],[2,2,4],[3,1,2,2],[2,1,1,2,2],[1,1,2,2,2],[2,2,1,1,2],[3,1,4],[2,1,1,4]];
 var CELL_MED=[[3,1,2,1,1],[2,1,1,2,1,1],[1,1,2,1,1,2],[3,1,3,1],[1,1,1,1,2,2],[2,2,1,1,1,1],[1,1,2,2,1,1],[2,1,1,1,1,2],[1,1,1,1,1,1,2]];
 var CELL_RICH=[[-1,1,1,1,2,2],[1,1,-1,1,2,2],[3,3,2],[1,3,1,3],[2,3,3],[1,2,2,2,1],[1,1,1,-1,1,1,2],[3,1,1,1,2],[3,1,1,1,1,1],[1,1,1,1,1,1,1,1],[1,2,1,2,1,1],[2,1,1,1,1,1,1],[1,1,2,1,1,1,1]];
-var ALL_CELLS=CELL_SIMPLE.concat(CELL_MED,CELL_RICH);
+var CELL_FAST=[[0.5,0.5,0.5,0.5,1,1,1,1,2],[1,0.5,0.5,1,0.5,0.5,2,2],[1.5,0.5,1.5,0.5,2,2],[0.5,0.5,1,0.5,0.5,1,2,2],[2,0.5,0.5,0.5,0.5,1,1,2],[1.5,0.5,1.5,0.5,1.5,0.5,1,1]];
+var ALL_CELLS=CELL_SIMPLE.concat(CELL_MED,CELL_RICH,CELL_FAST);
 var CAD_FULL=[[2,2,4],[2,1,1,4],[3,1,4],[2,2,3,-1],[4,4],[2,1,1,3,-1]];
 var CAD_HALF=[[2,2,4],[2,2,2,-2],[2,1,1,4],[3,1,4],[2,2,3,-1],[4,4]];
 function countNotes(cell){var n=0;for(var i=0;i<cell.length;i++)if(cell[i]>0)n++;return n;}
 function pickCell(g,n){
-  var pools=[CELL_SIMPLE,CELL_MED,CELL_RICH];
-  var w=[Math.max(0.5,1.3-0.8*g),0.5+0.7*g,g>0.45?(g-0.45)*1.8:0];
+  var pools=[CELL_SIMPLE,CELL_MED,CELL_RICH,CELL_FAST];
+  var w=[Math.max(0.5,1.3-0.8*g),0.5+0.7*g,g>0.45?(g-0.45)*1.8:0,g>0.3?(g-0.3)*1.6:0];
   for(var tries=0;tries<30;tries++){
     var c=pick(weightedPick(pools,w));
     if(n==null||countNotes(c)===n)return c.slice();
@@ -747,12 +756,14 @@ function ornamentBars(bars,prob){
 
 /* ---- endless-novelty helpers: widening register, roaming focus, modulation, new themes ---- */
 function setWindow(state){
-  var key=state.key,t=state.t||0;
-  var wh=state.minHalf+(30-state.minHalf)*(1-Math.exp(-t/170));   /* half-width in semitones: grows for ever toward the full keyboard */
+  var key=state.key,t=state.t||0,kr=kbRange(t);
+  state.klo=kr[0];state.khi=kr[1];
+  var kh=(state.khi-state.klo)/2;
+  var wh=Math.min(kh,state.minHalf+Math.max(0,kh-state.minHalf)*(1-Math.exp(-t/90)));
   var lo=state.wc-wh,hi=state.wc+wh;
-  if(lo<LOW_MIDI){hi+=LOW_MIDI-lo;lo=LOW_MIDI;}
-  if(hi>HIGH_MIDI){lo-=hi-HIGH_MIDI;hi=HIGH_MIDI;}
-  lo=Math.max(LOW_MIDI,lo);
+  if(lo<state.klo){hi+=state.klo-lo;lo=state.klo;}
+  if(hi>state.khi){lo-=hi-state.khi;hi=state.khi;}
+  lo=Math.max(state.klo,lo);
   var dmin=null,dmax=null;
   for(var d=-40;d<=50;d++){var mm=degToMidi(d,key);if(mm>=lo&&dmin==null)dmin=d;if(mm<=hi)dmax=d;}
   state.dmin=dmin;state.dmax=dmax;state.wlo=lo;state.whi=hi;
@@ -766,19 +777,40 @@ function newFocus(state){
   state.center=best;
 }
 function modulate(state){
-  var k=state.key,t=k.tonic,mode=k.mode,opts=[[(t+7)%12,mode],[(t+5)%12,mode],[(t+2)%12,mode],[(t+10)%12,mode],
-    mode==='major'?[(t+9)%12,'minor']:[(t+3)%12,'major'],[t,mode==='major'?'minor':'major']];
-  var o=pick(opts),oldM=state.lastDeg!=null?degToMidi(state.lastDeg,k):null;
-  var nk={tonic:o[0],mode:o[1],scale:MODES[o[1]],root:60+o[0],name:NOTE_NAMES[o[0]]+' '+o[1]};
+  var k=state.key,g=state.g||0,oldM=state.lastDeg!=null?degToMidi(state.lastDeg,k):null;
+  var shifts=[7,5,7,5,9,3,0],modes=['major','minor'];
+  if(g>0.15)modes.push('dorian','mixolydian');
+  if(g>0.3)shifts.push(2,10,4,8);
+  if(g>0.35)modes.push('lydian','phrygian','harmonic');
+  if(g>0.6)shifts.push(1,6,11);
+  var tn,md,tries=0;
+  do{tn=(k.tonic+pick(shifts))%12;md=pick(modes);tries++;}while(tn===k.tonic&&md===k.mode&&tries<20);
+  var nk={tonic:tn,mode:md,scale:MODES[md],root:60+tn,name:NOTE_NAMES[tn]+' '+md};
   state.key=nk;state.keyName=nk.name;
   if(oldM!=null)state.lastDeg=midiToDeg(oldM,nk);
   state.center=midiToDeg(degToMidi(state.center,k),nk);
   flash(state,'MODULATION \u00b7 '+nk.name.toUpperCase());
 }
+/* tempo (accel / rit / sudden changes) and dynamics (cresc / dim / sudden pp-ff): contrast grows with time */
+function planTempoDyn(state){
+  var g=state.g,st=state.stage,umin=0.30-0.18*g,umax=0.30+0.30*g,lowL=0.62-0.35*g;
+  function cl(x){return Math.max(umin,Math.min(umax,x));}
+  state.u0=state.u1;state.d0=state.d1;
+  if(st>=1){
+    if(Math.random()<0.15+0.2*g)state.u0=rand(umin,umax);
+    var r=Math.random(),e=state.u0;
+    if(r<0.3)e=state.u0*rand(0.5,0.85);else if(r<0.6)e=state.u0*rand(1.25,2);
+    state.u0=cl(state.u0);state.u1=cl(e);
+    if(Math.random()<0.1+0.25*g)state.d0=Math.random()<0.5?lowL:1;
+    var r2=Math.random();
+    state.d1=r2<0.3?lowL:r2>0.7?1:rand(lowL,1);
+  }
+  state.unit=(state.u0+state.u1)/2;
+}
 function renewTheme(state){
   var th=state.theme,best=null,i;
   for(i=0;i<8;i++){
-    var m=newMotif(state,pickCell(state.g,pick([4,5,5,6,3,null])));
+    var m=newMotif(state,pickCell(state.g,pick([4,5,5,6,3,null,null,8])));
     for(var k=0;k<4;k++){var c=mutateMotif(m,state);c.fit=motifFit(c,state);if(c.fit>m.fit){m.rh=c.rh;m.deg=c.deg;m.fit=c.fit;}}
     if(m.rh.join('.')===th.rh.join('.'))m.fit-=4;
     if(!best||m.fit>best.fit)best=m;
@@ -855,18 +887,20 @@ function barsToEvents(state,bars,vs,kind){
   var key=state.key,flat=[],evs=[],total=bars.length,bi,i,k;
   for(bi=0;bi<total;bi++)for(i=0;i<bars[bi].length;i++)flat.push({n:bars[bi][i],bar:bi});
   for(k=0;k<flat.length;k++){
-    var n=flat[k].n,u=n.dur;
-    if(n.rest){evs.push({rest:true,duration:u*state.unit,kind:kind});continue;}
+    var n=flat[k].n,u=n.dur,pp=Math.max(0,Math.min(1,(flat[k].bar*8+(n.pos||0))/(total*8))),un=state.u0+(state.u1-state.u0)*pp,dy=state.d0+(state.d1-state.d0)*pp;
+    if(n.rest){evs.push({rest:true,duration:u*un,kind:kind});continue;}
     var d=n.deg,m=degToMidi(d,key);
-    while(m>HIGH_MIDI)m-=12;
-    while(m<LOW_MIDI)m+=12;
-    if(key.mode==='minor'&&mod7(d)===6&&m<HIGH_MIDI){
+    while(m>state.khi)m-=12;
+    while(m<state.klo)m+=12;
+    if(key.mode==='minor'&&mod7(d)===6&&m<state.khi){
       for(var q=k+1;q<flat.length;q++)if(!flat[q].n.rest){if(flat[q].n.deg===d+1)m+=1;break;}
     }
     var pos=n.pos,base=pos%8===0?0.85:pos%4===0?0.76:pos%2===0?0.68:0.6;
     var arc=0.92+0.1*Math.sin(Math.PI*(flat[k].bar*8+pos)/(total*8));
-    var v=Math.max(0.4,Math.min(0.95,base*arc+rand(-0.03,0.03)))*vs;
-    evs.push({midi:m,duration:u*state.unit,v:v,kind:kind});
+    var v=(base*arc+rand(-0.03,0.03))*dy*1.1*vs;
+    if(pos%4===0&&Math.random()<0.05+0.2*(state.g||0))v*=1.35;   /* sforzando */
+    v=Math.max(0.06,Math.min(1,v));
+    evs.push({midi:m,duration:u*un,v:v,kind:kind});
   }
   for(i=evs.length-1;i>=0;i--)if(!evs[i].rest){evs[i].v*=0.9;break;}
   return evs;
@@ -882,7 +916,7 @@ function planStage(state){
   state.g=growth((state.t||0)*1000);
   if(stage>=1&&stage%2===1&&Math.random()<0.75)modulate(state);
   if(stage>=3&&stage%3===0)renewTheme(state);
-  if(stage>=2)state.unit=Math.max(0.22,Math.min(0.38,state.unit*rand(0.86,1.17)));
+  planTempoDyn(state);
   setWindow(state);
   if(stage>=1)newFocus(state);
   evolve(state,14+2*Math.min(stage,8));
@@ -919,7 +953,8 @@ function planStage(state){
   main[main.length-1].finBars=total;
   main[main.length-1].segEnd={evs:main.map(plain),bars:N,stage:stageNo,lastAt:0};
   for(i=0;i<main.length;i++)q.push(main[i]);
-  state.tail=lastBarOf(main,state.unit);
+  state.tail=lastBarOf(main,state.u1);
+  q[0].kb=[state.klo,state.khi];
   state.lastDeg=lastDegOf(best.bars[N-1]);
   state.melodyBars=total;
   state.t+=N*8*state.unit*1.35;
@@ -933,7 +968,7 @@ function createComposer(seed){
   var key=detectKey(seed),i;
   var state={
     seed:seed.slice(),key:key,keyName:key.name,queue:[],discoveryCount:0,pendingFlash:null,
-    nextId:1,g:0,t:0,unit:UNIT,stage:0,melodyBars:0,lastDeg:null,tail:null,theme:null,
+    nextId:1,g:0,t:0,unit:UNIT,u0:UNIT,u1:UNIT,d0:0.8,d1:0.8,stage:0,melodyBars:0,lastDeg:null,tail:null,theme:null,
     memory:{motifs:[]}
   };
   var smin=Math.min.apply(null,seed),smax=Math.max.apply(null,seed);
@@ -961,20 +996,12 @@ function createComposer(seed){
 
 
 /* ========== KEYBOARD ========== */
-var LOW=36,HIGH=96;
+var LOW=36,HIGH=108;
 var BLACK_SET={1:1,3:1,6:1,8:1,10:1};
 function isBlack(midi){return !!BLACK_SET[((midi%12)+12)%12];}
 var keys=[],whiteKeys=[],blackKeys=[];
 for(var m=LOW;m<=HIGH;m++)keys.push({midi:m,isBlack:isBlack(m)});
 for(var i=0;i<keys.length;i++){if(keys[i].isBlack)blackKeys.push(keys[i]);else whiteKeys.push(keys[i]);}
-var whitePct=100/whiteKeys.length,blackPct=whitePct*0.62;
-var blackPositions={};
-for(var i=0;i<blackKeys.length;i++){
-  var k=blackKeys[i];var whitesBefore=0;
-  for(var j=0;j<whiteKeys.length;j++){if(whiteKeys[j].midi<k.midi)whitesBefore++;}
-  blackPositions[k.midi]=whitesBefore*whitePct-blackPct/2;
-}
-
 var kbEl=document.getElementById('keyboard');
 var bkEl=document.getElementById('black-keys');
 var keyEls={};
@@ -998,12 +1025,30 @@ for(var i=0;i<blackKeys.length;i++){
   (function(k){
     var el=document.createElement('div');
     el.className='bkey';el.dataset.midi=k.midi;
-    el.style.left=blackPositions[k.midi]+'%';el.style.width=blackPct+'%';
     bindKeyPress(el,k.midi);
     bkEl.appendChild(el);keyEls[k.midi]=el;
   })(blackKeys[i]);
 }
 
+var kbLo=60,kbHi=84;
+function setKeyboardRange(lo,hi,quiet){
+  var vis=[],i;
+  for(i=0;i<whiteKeys.length;i++)if(whiteKeys[i].midi>=lo&&whiteKeys[i].midi<=hi)vis.push(whiteKeys[i].midi);
+  var wp=100/vis.length,bp=wp*0.62;
+  function show(el,on){
+    var was=el.style.display!=='none';
+    el.style.display=on?'':'none';
+    if(on&&!was&&!quiet){el.classList.add('fresh');setTimeout(function(){el.classList.remove('fresh');},1600);}
+  }
+  for(i=0;i<whiteKeys.length;i++){var m=whiteKeys[i].midi;show(keyEls[m],m>=lo&&m<=hi);}
+  for(i=0;i<blackKeys.length;i++){
+    var bm=blackKeys[i].midi,el=keyEls[bm],on=bm>lo&&bm<hi,wb=0;
+    if(on){for(var j=0;j<vis.length;j++)if(vis[j]<bm)wb++;el.style.left=(wb*wp-bp/2)+'%';el.style.width=bp+'%';}
+    show(el,on);
+  }
+  kbLo=lo;kbHi=hi;
+}
+setKeyboardRange(60,84,true);
 function setKeyActive(midi,active){
   var el=keyEls[midi];if(!el)return;
   if(active)el.classList.add('active');else el.classList.remove('active');
@@ -1038,7 +1083,7 @@ function drawViz(now){
   vizCtx.lineWidth=2;
   for(var i=0;i<vizBuffer.length;i++){
     var it=vizBuffer[i],age=now-it.t,x=vizW-(age/span)*vizW;
-    var y=vizH-((it.midi-36)/60)*vizH,alpha=Math.max(0,1-age/span);
+    var y=vizH-((it.midi-36)/72)*vizH,alpha=Math.max(0,1-age/span);
     vizCtx.strokeStyle='rgba(0,180,50,'+(alpha*0.85).toFixed(2)+')';
     vizCtx.beginPath();vizCtx.moveTo(x,Math.max(0,y-12));vizCtx.lineTo(x,Math.min(vizH,y+4));vizCtx.stroke();
   }
@@ -1117,7 +1162,7 @@ function pumpGen(){
     if(ev.rest)rec.rest=true;
     else{rec.midi=ev.midi;rec.v=ev.v;schedNote(ev.midi,t,d,ev.v);}
     gen.evs.push(rec);
-    visQ.push({t:t,dur:d,rest:ev.rest,midi:ev.midi,gen:true,tag:ev.tag,stage:ev.stage,mem:ev.mem,flash:ev.flash,finBars:ev.finBars});
+    visQ.push({t:t,dur:d,rest:ev.rest,midi:ev.midi,gen:true,tag:ev.tag,stage:ev.stage,mem:ev.mem,flash:ev.flash,finBars:ev.finBars,kb:ev.kb});
     if(ev.segEnd){ev.segEnd.lastAt=t;gen.segs.push(ev.segEnd);}
     gen.t+=d;
   }
@@ -1138,6 +1183,7 @@ function drainVis(){
       if(remain>0.03){lightKey(e.midi,remain*1000);vizAdd(e.midi);}
       if(e.gen)view.notes++;
     }
+    if(e.kb)setKeyboardRange(e.kb[0],e.kb[1]);
     if(e.tag){view.tag=e.tag;if(e.stage)view.stage=e.stage;if(e.mem!=null)view.mem=e.mem;}
     if(e.flash){view.flashText=e.flash;view.flashUntil=performance.now()+2600;}
     if(e.finBars!=null)view.bars=e.finBars;
@@ -1158,6 +1204,7 @@ function startGeneration(){
   unlockAudio();
   if(!AC){setCounterHTML('<span>AUDIO NOT SUPPORTED</span>');return;}
   keepOn();
+  setKeyboardRange(60,84,true);
   composer=createComposer(inputNotes.slice());
   gen={active:false,t:0,startT:0,evs:[],segs:[]};
   visQ=[];
@@ -1341,7 +1388,7 @@ function reset(){
   gen.active=false;
   stopReplay(true);stopTicker();keepOff();setMediaSession(false);
   silenceAll();visQ=[];dragging=null;
-  inputNotes=[];clearAllKeyLights();
+  inputNotes=[];clearAllKeyLights();setKeyboardRange(60,84,true);
   for(var m in keyEls)setKeySeed(m,false);
   composer=null;
   setTrack('process',[]);setTrack('final',[]);setTrack('shared',[]);
