@@ -822,10 +822,10 @@ function newFocus(state){
 function modulate(state){
   var k=state.key,g=state.g||0,oldM=state.lastDeg!=null?degToMidi(state.lastDeg,k):null;
   var shifts=[7,5,7,5,9,3,0],modes=['major','minor'];
-  if(g>0.15)modes.push('dorian','mixolydian');
-  if(g>0.3)shifts.push(2,10,4,8);
-  if(g>0.35)modes.push('lydian','phrygian','harmonic');
-  if(g>0.6)shifts.push(1,6,11);
+  if(g>0.04)modes.push('dorian','mixolydian');
+  if(g>0.08)shifts.push(2,10,4,8);
+  if(g>0.14)modes.push('lydian','phrygian','harmonic');
+  if(g>0.3)shifts.push(1,6,11);
   var tn,md,tries=0;
   do{tn=(k.tonic+pick(shifts))%12;md=pick(modes);tries++;}while(tn===k.tonic&&md===k.mode&&tries<20);
   var nk={tonic:tn,mode:md,scale:MODES[md],root:60+tn,name:NOTE_NAMES[tn]+' '+md};
@@ -1832,7 +1832,7 @@ function planStage(state){
   ensureCM(state);directorStep(state);
   var E=evoStep(state);
   if(E.type==='collapse')N=Math.min(N,4);
-  if(stage>=1&&state.endKind!=='none'&&Math.random()<(E.type==='collapse'?0:.3*directorModK(state)))modulate(state);
+  if(stage>=1&&state.endKind!=='none'&&Math.random()<(E.type==='collapse'?0:directorModP(state)))modulate(state);
   if(stage>=3&&stage%3===0&&E.type==='norm'&&E.phase>=2&&state.endKind!=='none'&&Math.random()<.3)renewTheme(state);
   if(stage===0||state.endKind!=='none')planTempoDyn(state);directorTempo(state);evoTempo(state,E);
   setWindow(state);
@@ -1899,8 +1899,9 @@ var DIR_T={INTRO:[.25,.2,.3,.5,.1,.8,.3,.2],THEME:[.45,.3,.5,.6,.15,.55,.45,.25]
 var DIR_PRED={INTRO:.9,THEME:.75,CONTRAST:.6,DEV:.55,TENSION:.4,CLIMAX:.6,RELEASE:.82,RETURN:.8,CODA:.95};
 var DIR_VP={INTRO:.05,THEME:.12,CONTRAST:.3,DEV:.45,TENSION:.35,CLIMAX:.5,RELEASE:.1,RETURN:.2,CODA:.05};
 var DIR_PURPOSE={INTRO:'introduce',THEME:'establish',CONTRAST:'contrast',DEV:'develop',TENSION:'anticipate',CLIMAX:'intensify',RELEASE:'release',RETURN:'recall',CODA:'conclude'};
-var DIR_EV={BREATH:['rest',1],SILENCE:['rest',1],ACCELERANDO:['tempo',1],RITARDANDO:['tempo',1],SUDDEN_PUSH:['tempo',1],SUDDEN_PULL:['tempo',1],REGISTER_SHIFT:['reg',1],DENSITY_DROP:['dens',1],DENSITY_SURGE:['dens',1],TEMPORARY_MODULATION:['harm',1]};
-var DIR_EW={TENSION:{ACCELERANDO:3,SILENCE:3,DENSITY_DROP:2},CLIMAX:{DENSITY_SURGE:3,ACCELERANDO:1,REGISTER_SHIFT:2},RELEASE:{RITARDANDO:3,BREATH:2,DENSITY_DROP:2},CODA:{RITARDANDO:3,BREATH:2,DENSITY_DROP:2},DEV:{TEMPORARY_MODULATION:2,REGISTER_SHIFT:2,SUDDEN_PUSH:1},CONTRAST:{TEMPORARY_MODULATION:1.5,REGISTER_SHIFT:2,SUDDEN_PULL:1}};
+var DIR_EV={BREATH:['rest',1],SILENCE:['rest',1],ACCELERANDO:['tempo',1],RITARDANDO:['tempo',1],SUDDEN_PUSH:['tempo',1],SUDDEN_PULL:['tempo',1],REGISTER_SHIFT:['reg',1],DENSITY_DROP:['dens',1],DENSITY_SURGE:['dens',1],TEMPORARY_MODULATION:['harm',1],SCENE_CHANGE:['scene',1],COLLAPSE:['dens',1]};
+var DIR_FAM={INTRO:[1.2,.2,.2,0],THEME:[1,.4,.3,0],CONTRAST:[.3,1,.8,.3],DEV:[.1,1.2,1.2,.6],TENSION:[.3,.8,1,.4],CLIMAX:[0,1,1.8,.5],RELEASE:[1.2,.1,.1,0],RETURN:[.9,.4,.3,0],CODA:[1.3,.1,0,0]};   /* safe, novel, dynamic, strange */
+var DIR_EW={TENSION:{ACCELERANDO:3,SILENCE:3,DENSITY_DROP:2,COLLAPSE:2},CLIMAX:{DENSITY_SURGE:3,ACCELERANDO:1,REGISTER_SHIFT:2},RELEASE:{RITARDANDO:3,BREATH:2,DENSITY_DROP:2},CODA:{RITARDANDO:3,BREATH:2,DENSITY_DROP:2},DEV:{TEMPORARY_MODULATION:2,REGISTER_SHIFT:2,SUDDEN_PUSH:1,SCENE_CHANGE:2},CONTRAST:{TEMPORARY_MODULATION:1.5,REGISTER_SHIFT:2,SUDDEN_PULL:1,SCENE_CHANGE:2.5}};
 function dirClamp(x,a,b){return Math.max(a,Math.min(b,x));}
 function dirRange(a){var lo=1e9,hi=-1e9;a.forEach(function(x){if(x<lo)lo=x;if(x>hi)hi=x;});return a.length?hi-lo:9;}
 function dirInit(state){
@@ -1919,24 +1920,32 @@ function directorStep(state){
   d.mono.dens=h.length>=3?1-dirClamp(dirRange(h.slice(-3).map(function(x){return x.dens;}))/2,0,1):0;
   d.mono.reg=h.length>=3?1-dirClamp(dirRange(h.slice(-3).map(function(x){return x.reg;}))/4,0,1):0;
   d.mono.tempo=t.length>=4?1-dirClamp(dirRange(t.slice(-4))/(.08*(t[t.length-1]||.3)),0,1):0;
-  d.ev=directorPick(state,fn);
-  d.lastCat=d.ev.type==='NONE'?'':DIR_EV[d.ev.type][0];
+  d.fw=(DIR_FAM[fn]||DIR_FAM.THEME).map(function(w){return w*(.6+.8*Math.random());});   /* the family mix differs every time */
+  if(d.hold&&st<=d.hold.until)for(i=0;i<8;i++)if(d.hold.v[i]!=null)d.ms[i]=d.hold.v[i];
+  d.ev=(d.hold&&st===d.hold.until+1)?{type:'RETURN_TEMPO',payoff:true}:directorPick(state,fn);
+  if(d.ev.type==='SCENE_CHANGE'){   /* discontinuous jump: several axes at once, best of a few contrasting worlds */
+    var bw=null,bd=-1,ax=[1,2,3,6];
+    for(var k=0;k<4;k++){var v={},dd=0;ax.forEach(function(a){v[a]=dirClamp(1-d.ms[a]+(Math.random()-.5)*.3,.05,.95);dd+=Math.abs(v[a]-d.ms[a]);});if(dd>bd){bd=dd;bw=v;}}
+    d.hold={until:st+2+Math.floor(Math.random()*3),v:{}};ax.forEach(function(a){d.hold.v[a]=bw[a];d.ms[a]=bw[a];});
+    d.ev.fast=bw[6]>.5;d.nm.callbacks.push({stage:st,what:'scene'});
+  }else if(d.ev.type==='COLLAPSE'){d.ms[2]=.05;d.ms[0]*=.5;}
+  d.lastCat=d.ev.type==='NONE'?'':(DIR_EV[d.ev.type]||['tempo'])[0];
   if(d.ev.type!=='NONE')d.nm.important.push({stage:st,type:d.ev.type,fn:fn});
   while(d.nm.important.length>40)d.nm.important.shift();
 }
 function directorPick(state,fn){
   var d=state.dir,prev=d.ev.type,st=state.stage;
-  if(st<2)return{type:'NONE'};
+  if(st<2||(d.hold&&st<=d.hold.until))return{type:'NONE'};   /* a scene is lived in, not interrupted */
   if(d.pend&&st-d.pend.stage<=2&&Math.random()<.7){var p=d.pend;d.pend=null;return{type:p.cat==='tempo'?'RETURN_TEMPO':'NONE',payoff:true};}   /* a surprise is followed by its consequence */
   if(Math.random()>.16+.3*(1-d.pred)+.15*(state.g||0))return{type:'NONE'};                                                           /* "do nothing" stays the most common choice */
   var names=Object.keys(DIR_EV),ws=names.map(function(n){
-    var c=DIR_EV[n][0],w=(DIR_EW[fn]&&DIR_EW[fn][n])||(c==='harm'?(fn==='DEV'||fn==='CONTRAST'?1:.15):1);
+    var c=DIR_EV[n][0],w=(DIR_EW[fn]&&DIR_EW[fn][n])||(c==='harm'?(fn==='DEV'||fn==='CONTRAST'?1:.15):c==='scene'?.3:1);
     if(c===d.lastCat)w*=.05;                                                                  /* never the same kind twice in a row */
     if(c==='tempo'&&d.mono.tempo>.7)w*=3;if(c==='dens'&&d.mono.dens>.7)w*=3;if(c==='reg'&&d.mono.reg>.7)w*=3;
     if(c==='rest'&&fn==='INTRO')w*=.3;
     return w;});
   var type=weightedPick(names,ws),ev={type:type};
-  if(type==='REGISTER_SHIFT')ev.dir=(state.lastDeg!=null&&state.lastDeg>state.center)?-1:1;
+  if(type==='REGISTER_SHIFT'||type==='SCENE_CHANGE')ev.dir=(state.lastDeg!=null&&state.lastDeg>state.center)?-1:1;
   var c=DIR_EV[type][0];if(type==='SUDDEN_PUSH'||type==='SUDDEN_PULL'||c==='reg'||c==='harm')d.pend={stage:st,cat:c==='tempo'?'tempo':'x'};
   var L=d.hist[d.hist.length-1];d.anchor=L?L.reg:state.center;
   return ev;
@@ -1946,18 +1955,30 @@ function directorTempo(state){
   var g=state.g||0,umin=.30-.18*g,umax=.30+.30*g,base=d.lastU1!=null?d.lastU1:state.u0,t=d.ev.type,a=base,b=base*(1+(Math.random()-.5)*.08);
   if(t==='ACCELERANDO')b=base*.82;else if(t==='RITARDANDO')b=base*1.22;
   else if(t==='SUDDEN_PUSH'){a=base*.8;b=a*.97;}else if(t==='SUDDEN_PULL'){a=base*1.25;b=a*1.03;}
+  else if(t==='SCENE_CHANGE'){a=base*(d.ev.fast?rand(.72,.85):rand(1.2,1.42));b=a;}   /* tempo shock */
   else if(t==='RETURN_TEMPO'&&d.baseU)b=d.baseU;
-  else d.baseU=b;                                   /* no event: the tempo only breathes within a few percent */
+  else if(!(d.hold&&state.stage<=d.hold.until))d.baseU=b;                                   /* no event: the tempo only breathes within a few percent */
   state.u0=dirClamp(a,umin,umax);state.u1=dirClamp(b,umin,umax);state.unit=(state.u0+state.u1)/2;
+  var inScene=d.hold&&state.stage<=d.hold.until;   /* dynamics: real pp / ff contrast, decided by the scene or the drama, never random */
+  if(inScene)state.d0=state.d1=d.hold.v[6]>.5?1:.4;else if(t==='COLLAPSE'||t==='SUDDEN_PULL')state.d0=state.d1=.4;else if(state.cm&&state.cm.fn==='CLIMAX'&&d.ms[0]>.8)state.d1=1;
   d.lastU1=state.u1;d.tempos.push(state.unit);if(d.tempos.length>8)d.tempos.shift();
 }
 function directorRest(state,q,quiet){
   var d=state.dir;if(!d||quiet||state.endKind==='none')return;
   var t=d.ev.type;
   if(t==='BREATH')q.push({rest:true,duration:state.unit*2,kind:'silence'});
+  else if(t==='COLLAPSE')q.push({rest:true,duration:state.unit*3,kind:'silence',flash:'COLLAPSE'});
   else if(t==='SILENCE')q.push({rest:true,duration:state.unit*4,kind:'silence',flash:'SILENCE'});
 }
-function directorModK(state){var d=state.dir;return d?(d.ev.type==='TEMPORARY_MODULATION'?3:.35):1;}
+function directorModP(state){   /* modulation is now a frequent colour change; endings stay settled, development/contrast/climax move most */
+  var d=state.dir;if(!d)return .3;
+  if(d.ev.type==='TEMPORARY_MODULATION'||d.ev.type==='SCENE_CHANGE')return 1;
+  var fn=(state.cm&&state.cm.fn)||'THEME',b=.42;
+  if(fn==='DEV'||fn==='CONTRAST'||fn==='CLIMAX'||fn==='TENSION')b+=.2;else if(fn==='RELEASE'||fn==='CODA')b-=.28;else if(fn==='INTRO')b-=.25;
+  if(d.hold&&state.stage<=d.hold.until)b*=.5;   /* inside a scene the new world is allowed to settle */
+  return dirClamp(b,.08,.8);
+}
+function directorModK(state){var d=state.dir;return d?((d.ev.type==='TEMPORARY_MODULATION'||d.ev.type==='SCENE_CHANGE')?3:.35):1;}
 function directorRecord(state,bars,N){
   var d=state.dir;if(!d)return;
   var fl=flatNotes(bars);if(!fl.length)return;
@@ -1968,7 +1989,7 @@ function directorFit(state,c){
   var fl=flatNotes(c.bars);if(!fl.length)return 0;
   var N=Math.max(1,c.bars.length),dens=fl.length/N,reg=fl.reduce(function(s,x){return s+x.d;},0)/fl.length,t=d.ev.type,s=0;
   var tD=2.5+5.5*d.ms[2]+(t==='DENSITY_SURGE'?1.5:t==='DENSITY_DROP'?-1.5:0);
-  var tR=state.center+(d.ms[3]-.5)*5+(t==='REGISTER_SHIFT'?3*(d.ev.dir||1):0);
+  var tR=state.center+(d.ms[3]-.5)*7+((t==='REGISTER_SHIFT'||t==='SCENE_CHANGE')?3*(d.ev.dir||1):0);
   s-=Math.min(2,Math.abs(dens-tD)*.35)+Math.min(1.5,Math.abs(reg-tR)*.2);                    /* NOW: does it serve the current state */
   var L=d.hist[d.hist.length-1];
   if(L){
@@ -1978,7 +1999,12 @@ function directorFit(state,c){
   }
   var mx=-99,mn=99;fl.forEach(function(x){if(x.d>mx)mx=x.d;if(x.d<mn)mn=x.d;});
   if(mx>state.dmax-1||mn<state.dmin+1)s-=.8;                                                 /* FUTURE: don't paint the next phrase into a corner */
-  return dirClamp(s,-4,4);
+  if(L&&d.fw){   /* candidate families: safe / novel / dynamic / strange, weighted by where the piece is */
+    var sm=Math.max(0,1-Math.abs(dens-L.dens)/1.5)*Math.max(0,1-Math.abs(reg-L.reg)/3),f=[.5*(c.stepR||0)+.5*sm,1-sm,Math.min(1,Math.abs(dens-L.dens)/2.5+Math.abs(reg-L.reg)/4),c.bars.weird?1:0],sw=0,sf=0;
+    for(var q=0;q<4;q++){sw+=d.fw[q];sf+=d.fw[q]*f[q];}
+    s+=1.8*(sf-.5*sw);
+  }
+  return dirClamp(s,-6,6);
 }
 function directorTag(state){var d=state.dir;return d?' \u00b7 '+d.purpose.toUpperCase()+(d.ev.type!=='NONE'?' \u00b7 '+d.ev.type:'')+' \u00b7 VP '+Math.round(d.vp*100):'';}
 
