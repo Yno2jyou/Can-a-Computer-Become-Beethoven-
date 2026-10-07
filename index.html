@@ -730,8 +730,7 @@ function contrastFor(state){
   else{c=mutateMotif(mutateMotif(state.theme,state),state);c.fit=motifFit(c,state);}
   return c;
 }
-function motifForKind(state,kind,con,j){return directorMotif(state,motifForKind0(state,kind,con,j));}
-function motifForKind0(state,kind,con,j){
+function motifForKind(state,kind,con,j){
   if(kind==='Tvar')return varyMotif(state.theme,j<2);
   if(kind==='Tinv')return invMotif(state.theme);
   if(kind==='C'||kind==='Cseq')return con;
@@ -1509,7 +1508,6 @@ function evolveCandidates(state,N,E){
   });
   pool.sort(byDesc('tot'));
   if(state.stage>0&&pool.length>1&&performance.now()-t0<budget*2.5){pool.slice(0,3).forEach(function(c){c.tot+=lookahead(state,c,N);c.score=c.tot;});pool.sort(byDesc('tot'));}
-  if(state.stage>0&&pool.length>1&&performance.now()-t0<budget*3){pool.slice(0,3).forEach(function(c){c.tot+=branchFuture(state,c,N,t0,budget*3.5);c.score=c.tot;});pool.sort(byDesc('tot'));}
   var med=pool[pool.length>>1].tot;
   CATS.forEach(function(cat){var bc=null,bv=-1e9;pool.forEach(function(c){if(c.tot>=med){var v=catVal(c,cat);if(v>bv){bv=v;bc=c;}}});if(bc)poolAdd(state,cat,bc,bv);});
   var win=pool[0];state.catRot=(state.catRot||0)+1;
@@ -1903,15 +1901,14 @@ var DIR_T={INTRO:[.25,.2,.3,.5,.1,.8,.3,.2],THEME:[.45,.3,.5,.6,.15,.55,.45,.25]
 var DIR_PRED={INTRO:.9,THEME:.75,CONTRAST:.6,DEV:.55,TENSION:.4,CLIMAX:.6,RELEASE:.82,RETURN:.8,CODA:.95};
 var DIR_VP={INTRO:.05,THEME:.12,CONTRAST:.3,DEV:.45,TENSION:.35,CLIMAX:.5,RELEASE:.1,RETURN:.2,CODA:.05};
 var DIR_PURPOSE={INTRO:'introduce',THEME:'establish',CONTRAST:'contrast',DEV:'develop',TENSION:'anticipate',CLIMAX:'intensify',RELEASE:'release',RETURN:'recall',CODA:'conclude'};
-var DIR_EV={BREATH:['rest',1],SILENCE:['rest',1],ACCELERANDO:['tempo',1],RITARDANDO:['tempo',1],SUDDEN_PUSH:['tempo',1],SUDDEN_PULL:['tempo',1],REGISTER_SHIFT:['reg',1],DENSITY_DROP:['dens',1],DENSITY_SURGE:['dens',1],TEMPORARY_MODULATION:['harm',1],SCENE_CHANGE:['scene',1],COLLAPSE:['dens',1]};
-var DIR_FAM={INTRO:[1.2,.2,.2,0],THEME:[1,.4,.3,0],CONTRAST:[.3,1,.8,.3],DEV:[.1,1.2,1.2,.6],TENSION:[.3,.8,1,.4],CLIMAX:[0,1,1.8,.5],RELEASE:[1.2,.1,.1,0],RETURN:[.9,.4,.3,0],CODA:[1.3,.1,0,0]};   /* safe, novel, dynamic, strange */
-var DIR_EW={TENSION:{ACCELERANDO:3,SILENCE:3,DENSITY_DROP:2,COLLAPSE:2},CLIMAX:{DENSITY_SURGE:3,ACCELERANDO:1,REGISTER_SHIFT:2},RELEASE:{RITARDANDO:3,BREATH:2,DENSITY_DROP:2},CODA:{RITARDANDO:3,BREATH:2,DENSITY_DROP:2},DEV:{TEMPORARY_MODULATION:2,REGISTER_SHIFT:2,SUDDEN_PUSH:1,SCENE_CHANGE:2},CONTRAST:{TEMPORARY_MODULATION:1.5,REGISTER_SHIFT:2,SUDDEN_PULL:1,SCENE_CHANGE:2.5}};
+var DIR_EV={BREATH:['rest',1],SILENCE:['rest',1],ACCELERANDO:['tempo',1],RITARDANDO:['tempo',1],TEMPORARY_MODULATION:['harm',1],SCENE_CHANGE:['scene',1],COLLAPSE:['dens',1]};
+var DIR_EW={TENSION:{ACCELERANDO:3,SILENCE:3,COLLAPSE:2},CLIMAX:{ACCELERANDO:1},RELEASE:{RITARDANDO:3,BREATH:2},CODA:{RITARDANDO:3,BREATH:2},DEV:{TEMPORARY_MODULATION:2,SCENE_CHANGE:2},CONTRAST:{TEMPORARY_MODULATION:1.5,SCENE_CHANGE:2.5}};
 function dirClamp(x,a,b){return Math.max(a,Math.min(b,x));}
 function dirRange(a){var lo=1e9,hi=-1e9;a.forEach(function(x){if(x<lo)lo=x;if(x>hi)hi=x;});return a.length?hi-lo:9;}
 function dirInit(state){
   var best=null,bn=-1;
   for(var k=0;k<3;k++){var off=DIR_AX.map(function(){return(Math.random()-.5)*.2;}),n=off.reduce(function(s,x){return s+Math.abs(x);},0);if(n>bn){bn=n;best=off;}}   /* several arcs are drawn, the most distinctive one is kept */
-  return state.dir={ms:DIR_T.THEME.slice(),off:best,ph:Math.random()*6.28,ev:{type:'NONE'},lastCat:'',hist:[],tempos:[],baseU:null,lastU1:null,st:-1,pend:null,vp:.1,pred:.75,purpose:'establish',mono:{tempo:0,dens:0,reg:0},nm:{promises:[],callbacks:[],important:[]},unfinished:[],last:null,discover:null,bars:[]};
+  return state.dir={ms:DIR_T.THEME.slice(),off:best,ph:Math.random()*6.28,ev:{type:'NONE'},lastCat:'',hist:[],tempos:[],baseU:null,lastU1:null,st:-1,pend:null,vp:.1,pred:.75,purpose:'establish',mono:{tempo:0,dens:0,reg:0},nm:{promises:[],callbacks:[],important:[]},unfinished:[],last:null,discover:null};
 }
 /* ---- musical intent: what the music wants to do now, decided from what it just heard; revised when the result surprised it ---- */
 var PUR={INTRO:{introduce:3,search:2,question:1},THEME:{approach:2,rise:2,answer:1.5,remember:1},CONTRAST:{wander:2,avoid:1.5,transform:1.5,'break':.6},DEV:{transform:2,expand:2,search:1,hesitate:1,wander:1,avoid:1},TENSION:{suspend:2,rise:2,hesitate:1.5,question:1.5},CLIMAX:{rise:2,expand:2,reveal:1.5,interrupt:.7},RELEASE:{fall:2,release:2,answer:1},RETURN:{'return':3,remember:2,answer:1,conclude:.7},CODA:{conclude:2,fall:2,release:1.5,refuse_to_conclude:.8}};
@@ -1943,7 +1940,6 @@ function directorStep(state){
   d.mono.dens=h.length>=3?1-dirClamp(dirRange(h.slice(-3).map(function(x){return x.dens;}))/2,0,1):0;
   d.mono.reg=h.length>=3?1-dirClamp(dirRange(h.slice(-3).map(function(x){return x.reg;}))/4,0,1):0;
   d.mono.tempo=t.length>=4?1-dirClamp(dirRange(t.slice(-4))/(.08*(t[t.length-1]||.3)),0,1):0;
-  d.fw=(DIR_FAM[fn]||DIR_FAM.THEME).map(function(w){return w*(.6+.8*Math.random());});   /* the family mix differs every time */
   if(d.hold&&st<=d.hold.until)for(i=0;i<8;i++)if(d.hold.v[i]!=null)d.ms[i]=d.hold.v[i];
   d.ev=(d.hold&&st===d.hold.until+1)?{type:'RETURN_TEMPO',payoff:true}:directorPick(state,fn);
   if(d.ev.type==='SCENE_CHANGE'){   /* discontinuous jump: several axes at once, best of a few contrasting worlds */
@@ -1969,8 +1965,8 @@ function directorPick(state,fn){
     if(c==='rest'&&fn==='INTRO')w*=.3;
     return w;});
   var type=weightedPick(names,ws),ev={type:type};
-  if(type==='REGISTER_SHIFT'||type==='SCENE_CHANGE')ev.dir=(state.lastDeg!=null&&state.lastDeg>state.center)?-1:1;
-  var c=DIR_EV[type][0];if(type==='SUDDEN_PUSH'||type==='SUDDEN_PULL'||c==='reg'||c==='harm')d.pend={stage:st,cat:c==='tempo'?'tempo':'x'};
+  if(type==='SCENE_CHANGE')ev.dir=(state.lastDeg!=null&&state.lastDeg>state.center)?-1:1;
+  var c=DIR_EV[type][0];if(c==='harm')d.pend={stage:st,cat:c==='tempo'?'tempo':'x'};
   var L=d.hist[d.hist.length-1];d.anchor=L?L.reg:state.center;
   return ev;
 }
@@ -1978,13 +1974,12 @@ function directorTempo(state){
   var d=state.dir;if(!d||state.stage<1)return;
   var g=state.g||0,umin=.30-.18*g,umax=.30+.30*g,base=d.lastU1!=null?d.lastU1:state.u0,t=d.ev.type,a=base,b=base*(1+(Math.random()-.5)*.08);
   if(t==='ACCELERANDO')b=base*.82;else if(t==='RITARDANDO')b=base*1.22;
-  else if(t==='SUDDEN_PUSH'){a=base*.8;b=a*.97;}else if(t==='SUDDEN_PULL'){a=base*1.25;b=a*1.03;}
   else if(t==='SCENE_CHANGE'){a=base*(d.ev.fast?rand(.72,.85):rand(1.2,1.42));b=a;}   /* tempo shock */
   else if(t==='RETURN_TEMPO'&&d.baseU)b=d.baseU;
   else if(!(d.hold&&state.stage<=d.hold.until))d.baseU=b;                                   /* no event: the tempo only breathes within a few percent */
   state.u0=dirClamp(a,umin,umax);state.u1=dirClamp(b,umin,umax);state.unit=(state.u0+state.u1)/2;
   var inScene=d.hold&&state.stage<=d.hold.until;   /* dynamics: real pp / ff contrast, decided by the scene or the drama, never random */
-  if(inScene)state.d0=state.d1=d.hold.v[6]>.5?1:.4;else if(t==='COLLAPSE'||t==='SUDDEN_PULL')state.d0=state.d1=.4;else if(state.cm&&state.cm.fn==='CLIMAX'&&d.ms[0]>.8)state.d1=1;
+  if(inScene)state.d0=state.d1=d.hold.v[6]>.5?1:.4;else if(t==='COLLAPSE')state.d0=state.d1=.4;else if(state.cm&&state.cm.fn==='CLIMAX'&&d.ms[0]>.8)state.d1=1;
   d.lastU1=state.u1;d.tempos.push(state.unit);if(d.tempos.length>8)d.tempos.shift();
 }
 function directorRest(state,q,quiet){
@@ -2015,16 +2010,14 @@ function directorRecord(state,bars,N,best){
     else if(it.purpose!=='break'&&Math.random()<.6){d.unfinished.push({stage:state.stage,dest:it.destination,dir:it.direction});while(d.unfinished.length>5)d.unfinished.shift();}
     if(it.direction!==0&&dr!==0&&dr!==it.direction&&best&&best.s1>=3)d.discover={dir:dr};
   }
-  bars.forEach(function(b){var ds=[],tot=0;b.forEach(function(x){if(!x.rest){ds.push(x.deg);tot++;}});if(ds.length)d.bars.push({start:ds[0],end:ds[ds.length-1],reg:ds.reduce(function(a,z){return a+z;},0)/ds.length,dens:tot,g:classifyBar(b)});});
-  while(d.bars.length>32)d.bars.shift();
   d.hist.push({dens:fl.length/Math.max(1,N),reg:fl.reduce(function(s,x){return s+x.d;},0)/fl.length});if(d.hist.length>6)d.hist.shift();
 }
 function directorFit(state,c){
   var d=state.dir;if(!d||state.stage<1)return 0;
   var fl=flatNotes(c.bars);if(!fl.length)return 0;
   var N=Math.max(1,c.bars.length),dens=fl.length/N,reg=fl.reduce(function(s,x){return s+x.d;},0)/fl.length,t=d.ev.type,s=0;
-  var tD=2.5+5.5*d.ms[2]+(t==='DENSITY_SURGE'?1.5:t==='DENSITY_DROP'?-1.5:0);
-  var tR=state.center+(d.ms[3]-.5)*7+((t==='REGISTER_SHIFT'||t==='SCENE_CHANGE')?3*(d.ev.dir||1):0);
+  var tD=2.5+5.5*d.ms[2];
+  var tR=state.center+(d.ms[3]-.5)*7+(t==='SCENE_CHANGE'?3*(d.ev.dir||1):0);
   s-=Math.min(2,Math.abs(dens-tD)*.35)+Math.min(1.5,Math.abs(reg-tR)*.2);                    /* NOW: does it serve the current state */
   var L=d.hist[d.hist.length-1];
   if(L){
@@ -2034,14 +2027,8 @@ function directorFit(state,c){
   }
   var mx=-99,mn=99;fl.forEach(function(x){if(x.d>mx)mx=x.d;if(x.d<mn)mn=x.d;});
   if(mx>state.dmax-1||mn<state.dmin+1)s-=.8;                                                 /* FUTURE: don't paint the next phrase into a corner */
-  if(L&&d.fw){   /* candidate families: safe / novel / dynamic / strange, weighted by where the piece is */
-    var sm=Math.max(0,1-Math.abs(dens-L.dens)/1.5)*Math.max(0,1-Math.abs(reg-L.reg)/3),f=[.5*(c.stepR||0)+.5*sm,1-sm,Math.min(1,Math.abs(dens-L.dens)/2.5+Math.abs(reg-L.reg)/4),c.bars.weird?1:0],sw=0,sf=0;
-    for(var q=0;q<4;q++){sw+=d.fw[q];sf+=d.fw[q]*f[q];}
-    s+=1.8*(sf-.5*sw);
-  }
   s+=intentFit(state,c,fl,dens,reg);
-  if(state.cm&&state.cm.intent){s+=expectFit(state,c);s+=harmonyMeaning(state,c.bars);}
-  return dirClamp(s,-10,10);
+  return dirClamp(s,-8,8);
 }
 function intentFit(state,c,fl,dens,reg){
   var d=state.dir,it=state.cm&&state.cm.intent,L=d.last;if(!it||!L)return 0;
@@ -2063,7 +2050,7 @@ function intentFit(state,c,fl,dens,reg){
 }
 function directorTag(state){var d=state.dir;return d?' \u00b7 '+d.purpose.toUpperCase()+(d.ev.type!=='NONE'?' \u00b7 '+d.ev.type:'')+' \u00b7 VP '+Math.round(d.vp*100):'';}
 
-/* ========== GESTURE / IDENTITY / TIERED MEMORY / 3-LEVEL EXPECTATION / BRANCHING / HARMONIC MEANING ========== */
+/* ========== GESTURE BARS (intent -> small melodic gestures with a destination) ========== */
 var GMAP={approach:['APPROACH','RISE_TO_PEAK'],rise:['RISE_TO_PEAK','APPROACH'],fall:['FALL_AWAY','ANSWER'],release:['FALL_AWAY','ANSWER'],conclude:['ANSWER','FALL_AWAY'],question:['QUESTION','SUSPEND'],answer:['ANSWER','LEAP_AND_RECOVER'],hesitate:['SUSPEND','CIRCLE'],suspend:['SUSPEND','HOLD'],expand:['EXPAND','RISE_TO_PEAK'],transform:['CIRCLE','LEAP_AND_RECOVER'],avoid:['ESCAPE','CIRCLE'],wander:['CIRCLE','ESCAPE'],search:['CIRCLE','APPROACH'],reveal:['LEAP_AND_RECOVER','RISE_TO_PEAK'],'break':['ESCAPE','LEAP_AND_RECOVER'],interrupt:['ESCAPE'],pursue_discovery:['APPROACH','RISE_TO_PEAK'],'return':['ANSWER','APPROACH'],remember:['CIRCLE','ANSWER'],introduce:['APPROACH','CIRCLE'],refuse_to_conclude:['SUSPEND','QUESTION']};
 function gestDegs(g,n,s,dest,pk){
   var o=[],i,t,v,up=dest>=s?1:-1;
@@ -2096,93 +2083,6 @@ function gestureBar(state,j,n,prevLast,ch){   /* a bar made from a gesture with 
   }
   out.gest=g;return out;
 }
-function classifyBar(bar){
-  var d=[];bar.forEach(function(x){if(!x.rest)d.push(x.deg);});
-  if(d.length<2)return'hold';
-  var mn=Math.min.apply(null,d),mx=Math.max.apply(null,d),net=d[d.length-1]-d[0],lp=0,i;
-  for(i=1;i<d.length;i++)if(Math.abs(d[i]-d[i-1])>=3)lp=1;
-  if(mx-mn<=1)return'hold';if(lp)return'leap';if(net>=2)return'rise';if(net<=-2)return'fall';
-  var pi=d.indexOf(mx);return(pi>0&&pi<d.length-1)?'arch':'circle';
-}
-/* motif identity: six separable aspects, each kept or released by the situation */
-function motifIdentity(m){var iv=ivOf(m.deg);return{surface:m.deg.join(','),interval:iv.map(Math.abs),contour:iv.map(sgn),rhythm:m.rh.slice(),accent:m.rh.map(function(u){return u>=2?1:0;}),destination:sgn(m.deg[m.deg.length-1]-m.deg[0])};}
-var DIR_RET={DEV:{rhythm:.4,interval:.5,contour:.7,dest:.5},CONTRAST:{rhythm:.3,interval:.4,contour:.5,dest:.4},CLIMAX:{rhythm:.3,interval:.3,contour:.85,dest:.8},RETURN:{rhythm:.85,interval:.6,contour:.8,dest:.7},CODA:{rhythm:.7,interval:.8,contour:.9,dest:.9}};
-function directorMotif(state,m){
-  var fn=state.cm&&state.cm.fn,P=DIR_RET[fn];if(!P||state.stage<2||Math.random()>.45||m.deg.length<3)return m;
-  var id=motifIdentity(m),n=m.deg.length,r={rh:m.rh.slice(),deg:[0]},i;
-  if(Math.random()>P.rhythm)r.rh=pickCell(state.g||0,n);
-  for(i=0;i<id.interval.length;i++){
-    var mag=id.interval[i];if(Math.random()>P.interval)mag=Math.max(1,Math.min(4,mag+pick([-1,1,2])));
-    var sg=id.contour[i]||1;if(Math.random()>P.contour)sg=-sg;
-    r.deg.push(r.deg[i]+sg*mag);
-  }
-  fixM(r);r.id=state.nextId++;r.fit=m.fit;return r;   /* same family, different aspects kept: it is the same thought, said differently */
-}
-/* tiered memory: 2 / 4 / 8 / 16 bars */
-function tierOf(d,n){
-  var b=d.bars.slice(-n);if(!b.length)return null;
-  var reg=0,dens=0,i;b.forEach(function(x){reg+=x.reg;dens+=x.dens;});
-  var rep=0;for(i=1;i<b.length;i++)if(b[i].g===b[i-1].g)rep++;
-  return{n:b.length,reg:reg/b.length,dens:dens/b.length,net:b[b.length-1].end-b[0].start,rep:b.length>1?rep/(b.length-1):0,last:b[b.length-1].g};
-}
-var GEXP={leap:['fall','hold','circle'],rise:['rise','arch','hold'],fall:['fall','hold','circle'],arch:['fall','circle','hold'],circle:['circle','rise','fall','arch'],hold:['rise','fall','circle','leap']};
-/* three levels: note (existing melodicExpectationScore) / gesture / phrase */
-function expectFit(state,c){
-  var d=state.dir,it=state.cm.intent,s=0,i,loose=/avoid|hesitate|wander|break|interrupt|transform/.test(it.purpose);
-  var gs=c.bars.map(classifyBar),prev=d.bars.length?d.bars[d.bars.length-1].g:null,seq=prev?[prev].concat(gs):gs;
-  for(i=1;i<seq.length;i++){
-    if((GEXP[seq[i-1]]||[]).indexOf(seq[i])>=0)s+=.25;else s+=loose?.15:-.15;          /* a swerve is allowed when the music means it */
-  }
-  var t4=tierOf(d,4),t8=tierOf(d,8),t16=tierOf(d,16),fl=flatNotes(c.bars),e=fl[fl.length-1].d,tonic=isTone(e,0)&&mod7(e)===0;
-  if(it.unresolved)s+=tonic?-.6:.5;else if(/conclude|release|answer/.test(it.purpose))s+=tonic?.8:-.2;   /* phrase level */
-  var cr=0;fl.forEach(function(x){cr+=x.d;});cr/=fl.length;
-  if(t8&&t8.n>=6&&Math.abs(cr-t8.reg)<.6&&gs.length&&Math.abs(fl.length/c.bars.length-t8.dens)<.7)s-=.7;  /* 8-bar memory: not the same shape again without a reason */
-  if(t16&&t16.n>=12&&t16.rep>.6)s-=.5;                                                                    /* 16-bar memory: the same gesture all along */
-  if(t4&&t4.net*(it.direction||0)>3)s-=.3;                                                               /* 4-bar memory: already went there */
-  return Math.max(-3,Math.min(3,s));
-}
-/* harmony changes what the melody means; the melody then has to answer the new meaning */
-function harmonyMeaning(state,bars){
-  var pr=bars.prog;if(!pr)return 0;var s=0,j;
-  for(j=0;j<bars.length-1&&j<pr.length-1;j++){
-    var c1=cp(pr[j]),c2=cp(pr[j+1]),r1=chordAt(c1,7),r2=chordAt(c2,0);if(r1===r2)continue;
-    var a=bars[j],b=bars[j+1],la=null,fb=null,i;
-    for(i=a.length-1;i>=0;i--)if(!a[i].rest){la=a[i];break;}
-    for(i=0;i<b.length;i++)if(!b[i].rest){fb=b[i];break;}
-    if(!la||!fb)continue;
-    if(la.deg===fb.deg&&isTone(la.deg,r1)!==isTone(la.deg,r2))s+=.8;                                      /* common tone, new function */
-    if(!isTone(la.deg,r1)&&isTone(fb.deg,r2)&&Math.abs(fb.deg-la.deg)<=1)s+=.5;                           /* leaning note lands because the chord moved */
-    if(fb.dur>=3&&!isTone(fb.deg,r2)&&b[1]&&!b[1].rest&&Math.abs(b[1].deg-fb.deg)>1)s-=.5;                /* new tension left hanging */
-  }
-  return Math.max(-2,Math.min(2,s));
-}
-/* trajectory branching: three possible futures (lyrical / departure / silence), two phrases deep */
-function branchFuture(state,c,N,t0,budget){
-  var d=state.dir,cm=state.cm,keepI=cm.intent,keepL=d.last,keepD=state.lastDeg,keepB=d.bars,vals=[],fl=flatNotes(c.bars);
-  if(!fl.length)return 0;
-  var end=fl[fl.length-1].d,base=Object.assign({},keepI),BR=[
-    {purpose:'approach',direction:keepI.direction||1,relation:'continuation',destination:end+3*(keepI.direction||1),unresolved:false},
-    {purpose:'wander',direction:-(keepI.direction||1),relation:'escape',destination:end-3*(keepI.direction||1),unresolved:false},
-    {purpose:'hesitate',direction:0,relation:'reaction',destination:end+1,unresolved:true}];
-  state.lastDeg=end;
-  try{
-    BR.forEach(function(br){
-      if(performance.now()-t0>budget)return;
-      cm.intent=Object.assign({},base,br);d.last={start:fl[0].d,end:end,peak:end,peakT:.5,dir:sgn(end-fl[0].d),unres:!isTone(end,0),dens:fl.length/N};
-      var best=-9,bb=null,k;
-      for(k=0;k<3;k++){var b=buildSegment(state,N),x={bars:b,tag:'gen',stepR:0};x.s1=scoreSegment(state,b);var v=x.s1*.3+directorFit(state,x);if(v>best){best=v;bb=b;}}
-      var fl2=flatNotes(bb);
-      if(fl2.length){state.lastDeg=fl2[fl2.length-1].d;d.last.end=state.lastDeg;
-        var b2=-9;for(k=0;k<2;k++){var q=buildSegment(state,N),y={bars:q,tag:'gen',stepR:0};y.s1=scoreSegment(state,q);var w=y.s1*.3+directorFit(state,y);if(w>b2)b2=w;}
-        best=best*.6+b2*.4;}
-      vals.push(best);state.lastDeg=end;
-    });
-  }finally{cm.intent=keepI;d.last=keepL;state.lastDeg=keepD;d.bars=keepB;}
-  if(!vals.length)return 0;
-  var mean=vals.reduce(function(a,b){return a+b;},0)/vals.length,mn=Math.min.apply(null,vals);
-  return Math.max(-3,Math.min(3,.2*mean+.25*mn));   /* a rich future needs more than one open door; one dead end is penalised */
-}
-
 /* ========== KEYBOARD ========== */
 var LOW=21,HIGH=108;
 var BLACK_SET={1:1,3:1,6:1,8:1,10:1};
