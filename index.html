@@ -49,6 +49,7 @@
     transition:background-color .075s;cursor:pointer;
     touch-action:none;-webkit-tap-highlight-color:transparent;user-select:none;
   }
+  .wkey{border-bottom-width:2px}
   .wkey.seed{background:#EEE}
   @keyframes freshW{from{background:#B8FFC8}to{background:#FFF}}
   @keyframes freshB{from{background:#00AA22}to{background:#000}}
@@ -1130,8 +1131,47 @@ function evoVoices(state,bars,main,E){
   var bs=[],idx=0;
   for(j=0;j<nb;j++){var c=bars[j].length;bs.push({s:cs[idx],e:cs[idx+c],i0:idx});idx+=c;}
   var total=cs[main.length];
-  function put(s,midi,dur,v,tn,pn){
-    if(s>=total-.02||v<=0)return;var z=0;while(z<main.length-1&&cs[z+1]<=s)z++;
+  /* HARMONY GUARD: every accompaniment note is fitted to the chord sounding at that moment
+     and checked against the lead notes it overlaps, so the two hands never fight each other */
+  var chs=[];for(j=0;j<nb;j++)chs.push(cp(j<nb-1&&prog[j]!=null?prog[j]:[4,0]));
+  var scPC={};key.scale.forEach(function(x){scPC[(key.tonic+x)%12]=1;});
+  function pcOf(m){return((m%12)+12)%12;}
+  function chordAtTime(t){
+    for(var jj=0;jj<nb;jj++){if(t<bs[jj].e-1e-6||jj===nb-1)return t<bs[jj].s+(bs[jj].e-bs[jj].s)/2?chs[jj][0]:chs[jj][1];}
+    return chs[nb-1][1];
+  }
+  function chordPCs(r){var o={};chordMidi(state,r).forEach(function(m){o[pcOf(m)]=1;});if(ped)o[pcOf(key.root)]=1;return o;}
+  function leadsIn(a,b){
+    var o=[],i=0;while(i<main.length-1&&cs[i+1]<=a)i++;
+    for(;i<main.length&&cs[i]<b-.02;i++){var L=main[i];if(L.rest||L.midi==null)continue;if(cs[i]<=a+.02||L.duration>=.3)o.push(L.midi);}
+    return o;
+  }
+  function icOf(a,b){var x=Math.abs(a-b)%12;return x>6?12-x:x;}
+  function clash(m,leads,strict){
+    for(var i=0;i<leads.length;i++){var d=Math.abs(m-leads[i]),ic=icOf(m,leads[i]);
+      if(ic===1)return true;
+      if(strict&&(ic===6||(ic===2&&d<12)))return true;}
+    return false;
+  }
+  function consonant(m,leads){
+    for(var i=0;i<leads.length;i++){var ic=icOf(m,leads[i]);if(ic===1||ic===2||ic===6)return false;}
+    return true;
+  }
+  function harmonize(m,t,dur,role){
+    var leads=leadsIn(t,t+dur),pcs=chordPCs(chordAtTime(t)),k,x,sg,tier;
+    if(role==='counter'){
+      for(k=0;k<=6;k++)for(sg=-1;sg<=1;sg+=2){x=m+k*sg;if(scPC[pcOf(x)]&&consonant(x,leads))return x;}
+      return null;
+    }
+    for(tier=1;tier>=0;tier--)
+      for(k=0;k<=6;k++)for(sg=-1;sg<=1;sg+=2){x=m+k*sg;if(pcs[pcOf(x)]&&!clash(x,leads,tier===1))return x;}
+    for(k=0;k<=6;k++)for(sg=-1;sg<=1;sg+=2){x=m+k*sg;if(pcs[pcOf(x)])return x;}
+    return m;
+  }
+  function put(s,midi,dur,v,tn,pn,role){
+    if(s>=total-.02||v<=0)return;
+    if(role){midi=harmonize(Math.round(midi),s,dur,role);if(midi==null)return;}
+    var z=0;while(z<main.length-1&&cs[z+1]<=s)z++;
     (main[z].acc=main[z].acc||[]).push({midi:Math.round(midi),off:Math.max(0,s-cs[z]),dur:Math.max(.1,dur),v:Math.min(1,v),tn:tn,pn:pn});
   }
   function fold(m,lo,hi){while(m>hi)m-=12;while(m<lo)m+=12;return m;}
@@ -1140,26 +1180,26 @@ function evoVoices(state,bars,main,E){
     var B=bs[j],bd=B.e-B.s,ch=cp(j<nb-1&&prog[j]!=null?prog[j]:[4,0]),h=bd/2,r0=ped?0:ch[0],r1=ped?0:ch[1];
     if(nv>=2){
       var BL=Math.max(21,Math.min(36,state.klo)),b0=fold(degToMidi(r0,key)-12,BL,52),b1=fold(degToMidi(r1,key)-12,BL,52);
-      if(cx<.35){put(B.s,b0,bd*(r1!==r0?.46:.95),.55*dyn,state.tBass,-.3);if(r1!==r0)put(B.s+h,b1,h*.95,.5*dyn,state.tBass,-.3);}
-      else if(cx<.7){put(B.s,b0,h*.95,.55*dyn,state.tBass,-.3);put(B.s+h,r1!==r0?b1:fold(b0+7,BL,55),h*.95,.5*dyn,state.tBass,-.3);}
-      else{put(B.s,b0,bd*.3,.58*dyn,state.tBass,-.3);put(B.s+bd*.375,b0,bd*.2,.45*dyn,state.tBass,-.3);put(B.s+bd*.625,fold(b0+7,BL,55),bd*.2,.45*dyn,state.tBass,-.3);put(B.s+bd*.875,b1,bd*.12,.4*dyn,state.tBass,-.3);}
+      if(cx<.35){put(B.s,b0,bd*(r1!==r0?.46:.95),.55*dyn,state.tBass,-.3,'bass');if(r1!==r0)put(B.s+h,b1,h*.95,.5*dyn,state.tBass,-.3,'bass');}
+      else if(cx<.7){put(B.s,b0,h*.95,.55*dyn,state.tBass,-.3,'bass');put(B.s+h,r1!==r0?b1:fold(b0+7,BL,55),h*.95,.5*dyn,state.tBass,-.3,'bass');}
+      else{put(B.s,b0,bd*.3,.58*dyn,state.tBass,-.3,'bass');put(B.s+bd*.375,b0,bd*.2,.45*dyn,state.tBass,-.3,'bass');put(B.s+bd*.625,fold(b0+7,BL,55),bd*.2,.45*dyn,state.tBass,-.3,'bass');put(B.s+bd*.875,b1,bd*.12,.4*dyn,state.tBass,-.3,'bass');}
     }
     if(nv>=3){
       for(k=B.i0;k<B.i0+bars[j].length;k++){
         var nt=bars[j][k-B.i0];if(nt.rest||nt.dur<2||(k%2&&cx<.7))continue;
         var cd=2*ch[0]-nt.deg-2;if(nt.pos%4===0)cd=snapTone(cd,ch[nt.pos<4?0:1]);
-        put(cs[k]+(cx>.5?bd/4:0),fold(degToMidi(cd,key),48,67),main[k].duration*.9,.5*dyn,state.tCnt,.4);
+        put(cs[k]+(cx>.5?bd/4:0),fold(degToMidi(cd,key),48,67),main[k].duration*.9,.5*dyn,state.tCnt,.4,'counter');
         if(cdeg.length<8)cdeg.push(cd);
       }
     }
     if(nv>=4){
       var m1=chordMidi(state,ch[0]),m2=chordMidi(state,ch[1]);
-      put(B.s,fold(m1[1],55,70),h*.95,.38*dyn,state.tInner,-.5);
-      put(B.s+h,fold(m2[m2.length>3?3:2],55,70),h*.95,.34*dyn,state.tInner,-.5);
+      put(B.s,fold(m1[1],55,70),h*.95,.38*dyn,state.tInner,-.5,'inner');
+      put(B.s+h,fold(m2[m2.length>3?3:2],55,70),h*.95,.34*dyn,state.tInner,-.5,'inner');
     }
     if(nv>=5){
       var cnt=pulseN,st=bd/cnt,pm=fold(degToMidi(ch[0]+4,key),60,79);
-      for(q=0;q<cnt;q++)put(B.s+q*st,pm,st*.7,.24*dyn*(q%2?.8:1),3,.6);
+      for(q=0;q<cnt;q++)put(B.s+q*st,pm,st*.7,.24*dyn*(q%2?.8:1),3,.6,'pulse');
     }
   }
   /* HARMONIC STACKS: the lead is struck together with chord tones (3rds/5ths/octaves) -> several keys at once */
@@ -1372,7 +1412,7 @@ function kbScale(){
   if(!scroll||!wrap)return;
   var avail=scroll.clientWidth,scale=avail>=1400?1:avail/1400;
   wrap.style.transform='scale('+scale+')';
-  scroll.style.height=(wrap.offsetHeight*scale)+'px';
+  scroll.style.height=(Math.ceil(wrap.offsetHeight*scale)+4)+'px';
 }
 vizResize();kbScale();
 window.addEventListener('resize',function(){vizResize();kbScale();});
