@@ -36,11 +36,11 @@
 
   /* Keyboard — desktop proportions, scaled to fit (no horizontal scroll) */
   #kb-scroll{
-    width:100%;max-width:960px;overflow:hidden;
+    width:100%;max-width:1400px;overflow:hidden;
   }
   #kb-wrap{
-    width:960px;position:relative;
-    height:clamp(180px,32vh,300px);
+    width:1400px;position:relative;
+    height:clamp(200px,34vh,340px);
     transform-origin:top left;
   }
   #keyboard{display:flex;width:100%;height:100%}
@@ -68,12 +68,12 @@
   #counter span{font-size:14px;letter-spacing:.3em;color:#999}
   #counter span.hint{color:#00AA22;animation:pulse 1.2s infinite}
   #counter span.thinking{animation:pulse 1.2s infinite;letter-spacing:.4em}
-  #evo{margin-top:4px;min-height:14px;font-size:10px;letter-spacing:.16em;color:#aaa;text-align:center;max-width:960px}
+  #evo{margin-top:4px;min-height:14px;font-size:10px;letter-spacing:.16em;color:#aaa;text-align:center;max-width:1400px}
   #counter span.composing{font-size:12px;color:#777}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
   /* Visualizer */
-  #viz{width:100%;max-width:960px;margin-top:16px;height:clamp(48px,9vh,90px);display:block}
+  #viz{width:100%;max-width:1400px;margin-top:16px;height:clamp(48px,9vh,90px);display:block}
 
   /* Controls */
   #controls{margin-top:16px;height:32px;display:flex;align-items:center;gap:24px}
@@ -422,11 +422,11 @@ function downloadBlob(blob,filename){
 var UNIT=0.30;                       /* seconds per eighth note (quarter = 100bpm) */
 var NOTE_NAMES=['C','Db','D','Eb','E','F','F#','G','Ab','A','Bb','B'];
 var MODES={major:[0,2,4,5,7,9,11],minor:[0,2,3,5,7,8,10]};
-var LOW_MIDI=36,HIGH_MIDI=108;
+var LOW_MIDI=21,HIGH_MIDI=108;   /* 88 keys: A0 - C8 */
 var MODE_EXTRA={dorian:[0,2,3,5,7,9,10],mixolydian:[0,2,4,5,7,9,10],lydian:[0,2,4,6,7,9,11],phrygian:[0,1,3,5,7,8,10],harmonic:[0,2,3,5,7,8,11]};
 for(var _mk in MODE_EXTRA)MODES[_mk]=MODE_EXTRA[_mk];
 function isBlackKey(m){return [1,3,6,8,10].indexOf(((m%12)+12)%12)>=0;}
-function kbRange(t){var e=1-Math.exp(-t/240),lo=Math.round(60-24*e),hi=Math.round(84+24*e);while(isBlackKey(lo))lo--;while(isBlackKey(hi))hi++;return[Math.max(LOW_MIDI,lo),Math.min(HIGH_MIDI,hi)];}
+function kbRange(t){var e=1-Math.exp(-t/240),lo=Math.round(60-39*e),hi=Math.round(84+24*e);while(isBlackKey(lo))lo--;while(isBlackKey(hi))hi++;return[Math.max(LOW_MIDI,lo),Math.min(HIGH_MIDI,hi)];}
 var THEME_G=0.30;                    /* growth level at which a theme is fixed */
 var MAX_POP=16;
 
@@ -1135,10 +1135,10 @@ function evoVoices(state,bars,main,E){
   for(j=0;j<nb;j++){
     var B=bs[j],bd=B.e-B.s,ch=cp(j<nb-1&&prog[j]!=null?prog[j]:[4,0]),h=bd/2,r0=ped?0:ch[0],r1=ped?0:ch[1];
     if(nv>=2){
-      var b0=fold(degToMidi(r0,key)-12,36,52),b1=fold(degToMidi(r1,key)-12,36,52);
+      var BL=Math.max(21,Math.min(36,state.klo)),b0=fold(degToMidi(r0,key)-12,BL,52),b1=fold(degToMidi(r1,key)-12,BL,52);
       if(cx<.35){put(B.s,b0,bd*(r1!==r0?.46:.95),.55*dyn,state.tBass,-.3);if(r1!==r0)put(B.s+h,b1,h*.95,.5*dyn,state.tBass,-.3);}
-      else if(cx<.7){put(B.s,b0,h*.95,.55*dyn,state.tBass,-.3);put(B.s+h,r1!==r0?b1:fold(b0+7,36,55),h*.95,.5*dyn,state.tBass,-.3);}
-      else{put(B.s,b0,bd*.3,.58*dyn,state.tBass,-.3);put(B.s+bd*.375,b0,bd*.2,.45*dyn,state.tBass,-.3);put(B.s+bd*.625,fold(b0+7,36,55),bd*.2,.45*dyn,state.tBass,-.3);put(B.s+bd*.875,b1,bd*.12,.4*dyn,state.tBass,-.3);}
+      else if(cx<.7){put(B.s,b0,h*.95,.55*dyn,state.tBass,-.3);put(B.s+h,r1!==r0?b1:fold(b0+7,BL,55),h*.95,.5*dyn,state.tBass,-.3);}
+      else{put(B.s,b0,bd*.3,.58*dyn,state.tBass,-.3);put(B.s+bd*.375,b0,bd*.2,.45*dyn,state.tBass,-.3);put(B.s+bd*.625,fold(b0+7,BL,55),bd*.2,.45*dyn,state.tBass,-.3);put(B.s+bd*.875,b1,bd*.12,.4*dyn,state.tBass,-.3);}
     }
     if(nv>=3){
       for(k=B.i0;k<B.i0+bars[j].length;k++){
@@ -1269,7 +1269,7 @@ function planStage(state){
 }
 
 /* ========== KEYBOARD ========== */
-var LOW=36,HIGH=108;
+var LOW=21,HIGH=108;
 var BLACK_SET={1:1,3:1,6:1,8:1,10:1};
 function isBlack(midi){return !!BLACK_SET[((midi%12)+12)%12];}
 var keys=[],whiteKeys=[],blackKeys=[];
@@ -1356,7 +1356,7 @@ function drawViz(now){
   vizCtx.lineWidth=2;
   for(var i=0;i<vizBuffer.length;i++){
     var it=vizBuffer[i],age=now-it.t,x=vizW-(age/span)*vizW;
-    var y=vizH-((it.midi-36)/72)*vizH,alpha=Math.max(0,1-age/span);
+    var y=vizH-((it.midi-21)/87)*vizH,alpha=Math.max(0,1-age/span);
     vizCtx.strokeStyle='rgba(0,180,50,'+(alpha*0.85).toFixed(2)+')';
     vizCtx.beginPath();vizCtx.moveTo(x,Math.max(0,y-12));vizCtx.lineTo(x,Math.min(vizH,y+4));vizCtx.stroke();
   }
@@ -1365,7 +1365,7 @@ function drawViz(now){
 function kbScale(){
   var scroll=document.getElementById('kb-scroll'),wrap=document.getElementById('kb-wrap');
   if(!scroll||!wrap)return;
-  var avail=scroll.clientWidth,scale=avail>=960?1:avail/960;
+  var avail=scroll.clientWidth,scale=avail>=1400?1:avail/1400;
   wrap.style.transform='scale('+scale+')';
   scroll.style.height=(wrap.offsetHeight*scale)+'px';
 }
