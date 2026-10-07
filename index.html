@@ -144,6 +144,12 @@
   .mini-btn{font-family:inherit;font-size:11px;letter-spacing:.2em;color:#777;background:none;border:none;cursor:pointer;padding:8px 0}
   .mini-btn:hover{color:#00AA22}
   .mini-btn:disabled{opacity:.5}
+  #prefs{margin-top:14px;display:flex;flex-direction:column;gap:6px;align-items:center}
+  .prow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:center}
+  .plabel{font-size:10px;letter-spacing:.2em;color:#aaa;width:60px;text-align:right;margin-right:6px}
+  .chip{font-family:inherit;font-size:10px;letter-spacing:.15em;color:#777;background:none;border:1px solid #DDD;border-radius:12px;padding:3px 10px;cursor:pointer;transition:color .15s,border-color .15s}
+  .chip:hover{color:#000;border-color:#999}
+  .chip.on{color:#00AA22;border-color:#00AA22}
   .wkey,.bkey{transition:background-color .06s}
   #kb-wrap{will-change:transform}
 </style>
@@ -165,6 +171,7 @@
   </div>
   <div id="counter"><span>0 / 5</span></div>
   <div id="evo"></div>
+  <div id="prefs"></div>
   <canvas id="viz" class="hidden"></canvas>
   <div id="controls"></div>
 </main>
@@ -826,6 +833,7 @@ function modulate(state){
   if(g>0.08)shifts.push(2,10,4,8);
   if(g>0.14)modes.push('lydian','phrygian','harmonic');
   if(g>0.3)shifts.push(1,6,11);
+  if(state.pref&&state.pref.modes)modes=state.pref.modes.slice();
   var tn,md,tries=0;
   do{tn=(k.tonic+pick(shifts))%12;md=pick(modes);tries++;}while(tn===k.tonic&&md===k.mode&&tries<20);
   var nk={tonic:tn,mode:md,scale:MODES[md],root:60+tn,name:NOTE_NAMES[tn]+' '+md};
@@ -1908,7 +1916,8 @@ function dirRange(a){var lo=1e9,hi=-1e9;a.forEach(function(x){if(x<lo)lo=x;if(x>
 function dirInit(state){
   var best=null,bn=-1;
   for(var k=0;k<3;k++){var off=DIR_AX.map(function(){return(Math.random()-.5)*.2;}),n=off.reduce(function(s,x){return s+Math.abs(x);},0);if(n>bn){bn=n;best=off;}}   /* several arcs are drawn, the most distinctive one is kept */
-  return state.dir={ms:DIR_T.THEME.slice(),off:best,ph:Math.random()*6.28,ev:{type:'NONE'},lastCat:'',hist:[],tempos:[],baseU:null,lastU1:null,st:-1,pend:null,vp:.1,pred:.75,purpose:'establish',mono:{tempo:0,dens:0,reg:0},nm:{promises:[],callbacks:[],important:[]},unfinished:[],last:null,discover:null};
+  if(state.pref)best=best.map(function(x,i){return x+(state.pref.off[i]||0);});   /* the chosen taste tilts the arc */
+  return state.dir={ms:DIR_T.THEME.slice(),off:best,ph:Math.random()*6.28,ev:{type:'NONE'},lastCat:'',hist:[],tempos:[],baseU:state.pref?UNIT*state.pref.tk:null,lastU1:state.pref?UNIT*state.pref.tk:null,st:-1,pend:null,vp:.1,pred:.75,purpose:'establish',mono:{tempo:0,dens:0,reg:0},nm:{promises:[],callbacks:[],important:[]},unfinished:[],last:null,discover:null};
 }
 /* ---- musical intent: what the music wants to do now, decided from what it just heard; revised when the result surprised it ---- */
 var PUR={INTRO:{introduce:3,search:2,question:1},THEME:{approach:2,rise:2,answer:1.5,remember:1},CONTRAST:{wander:2,avoid:1.5,transform:1.5,'break':.6},DEV:{transform:2,expand:2,search:1,hesitate:1,wander:1,avoid:1},TENSION:{suspend:2,rise:2,hesitate:1.5,question:1.5},CLIMAX:{rise:2,expand:2,reveal:1.5,interrupt:.7},RELEASE:{fall:2,release:2,answer:1},RETURN:{'return':3,remember:2,answer:1,conclude:.7},CODA:{conclude:2,fall:2,release:1.5,refuse_to_conclude:.8}};
@@ -1957,12 +1966,13 @@ function directorPick(state,fn){
   var d=state.dir,prev=d.ev.type,st=state.stage;
   if(st<2||(d.hold&&st<=d.hold.until))return{type:'NONE'};   /* a scene is lived in, not interrupted */
   if(d.pend&&st-d.pend.stage<=2&&Math.random()<.7){var p=d.pend;d.pend=null;return{type:p.cat==='tempo'?'RETURN_TEMPO':'NONE',payoff:true};}   /* a surprise is followed by its consequence */
-  if(Math.random()>.16+.3*(1-d.pred)+.15*(state.g||0))return{type:'NONE'};                                                           /* "do nothing" stays the most common choice */
+  if(Math.random()>(.16+.3*(1-d.pred)+.15*(state.g||0))*(state.pref?state.pref.evK:1))return{type:'NONE'};                                                           /* "do nothing" stays the most common choice */
   var names=Object.keys(DIR_EV),ws=names.map(function(n){
     var c=DIR_EV[n][0],w=(DIR_EW[fn]&&DIR_EW[fn][n])||(c==='harm'?(fn==='DEV'||fn==='CONTRAST'?1:.15):c==='scene'?.3:1);
     if(c===d.lastCat)w*=.05;                                                                  /* never the same kind twice in a row */
     if(c==='tempo'&&d.mono.tempo>.7)w*=3;if(c==='dens'&&d.mono.dens>.7)w*=3;if(c==='reg'&&d.mono.reg>.7)w*=3;
     if(c==='rest'&&fn==='INTRO')w*=.3;
+    if(c==='rest'&&state.pref)w*=state.pref.restK;
     return w;});
   var type=weightedPick(names,ws),ev={type:type};
   if(type==='SCENE_CHANGE')ev.dir=(state.lastDeg!=null&&state.lastDeg>state.center)?-1:1;
@@ -1972,7 +1982,7 @@ function directorPick(state,fn){
 }
 function directorTempo(state){
   var d=state.dir;if(!d||state.stage<1)return;
-  var g=state.g||0,umin=.30-.18*g,umax=.30+.30*g,base=d.lastU1!=null?d.lastU1:state.u0,t=d.ev.type,a=base,b=base*(1+(Math.random()-.5)*.08);
+  var g=state.g||0,tk=state.pref?state.pref.tk:1,umin=(.30-.18*g)*tk,umax=(.30+.30*g)*tk,base=d.lastU1!=null?d.lastU1:state.u0,t=d.ev.type,a=base,b=base*(1+(Math.random()-.5)*.08);
   if(t==='ACCELERANDO')b=base*.82;else if(t==='RITARDANDO')b=base*1.22;
   else if(t==='SCENE_CHANGE'){a=base*(d.ev.fast?rand(.72,.85):rand(1.2,1.42));b=a;}   /* tempo shock */
   else if(t==='RETURN_TEMPO'&&d.baseU)b=d.baseU;
@@ -1995,7 +2005,7 @@ function directorModP(state){   /* modulation is now a frequent colour change; e
   var fn=(state.cm&&state.cm.fn)||'THEME',b=.42;
   if(fn==='DEV'||fn==='CONTRAST'||fn==='CLIMAX'||fn==='TENSION')b+=.2;else if(fn==='RELEASE'||fn==='CODA')b-=.28;else if(fn==='INTRO')b-=.25;
   if(d.hold&&state.stage<=d.hold.until)b*=.5;   /* inside a scene the new world is allowed to settle */
-  return dirClamp(b,.08,.8);
+  return dirClamp(b*(state.pref?state.pref.modK:1),.04,.85);
 }
 function directorModK(state){var d=state.dir;return d?((d.ev.type==='TEMPORARY_MODULATION'||d.ev.type==='SCENE_CHANGE')?3:.35):1;}
 function directorRecord(state,bars,N,best){
@@ -2083,6 +2093,62 @@ function gestureBar(state,j,n,prevLast,ch){   /* a bar made from a gesture with 
   }
   out.gest=g;return out;
 }
+/* ========== TASTE: genre / mood / theme / tempo -> the composer's tendencies (nothing chosen = behaviour unchanged) ========== */
+var PREF_GROUPS=[
+  {id:'genre',label:'GENRE',opts:[['classical','CLASSICAL',{modes:['major','minor','harmonic']}],['jazz','JAZZ',{modes:['dorian','mixolydian','minor','major'],modK:1.5,evK:1.2,chrom:.3,off:{2:.05,4:.1}}],['pop','POP',{modes:['major','minor'],modK:.5,evK:.7,restK:.7,off:{4:-.1}}],['ambient','AMBIENT',{modes:['lydian','dorian','major'],modK:.6,evK:.8,restK:2.2,off:{2:-.2,0:-.1,5:.15}}]]},
+  {id:'mood',label:'MOOD',opts:[['bright','BRIGHT',{modes:['major','lydian','mixolydian'],off:{3:.2,0:.1,1:-.1}}],['melancholy','MELANCHOLY',{modes:['minor','dorian','phrygian'],off:{3:-.2,5:.15,0:-.1}}],['tense','TENSE',{modes:['harmonic','phrygian','minor'],off:{1:.2,4:.15,0:.05}}],['calm','CALM',{modes:['major','dorian','lydian'],off:{0:-.2,6:-.15,5:.15,1:-.1}}]]},
+  {id:'theme',label:'THEME',opts:[['night','NIGHT',{reg:-2,tk:1.15,off:{3:-.1,5:.15}}],['journey','JOURNEY',{modK:1.5,evK:1.2,tk:.95,off:{6:.15}}],['prayer','PRAYER',{tk:1.3,restK:1.6,modK:.6,off:{2:-.15,5:.2}}],['storm','STORM',{reg:2,tk:.8,evK:1.4,off:{0:.2,1:.15,6:.2}}]]},
+  {id:'tempo',label:'TEMPO',opts:[['slow','SLOW',{tk:1.35}],['mid','MODERATE',{tk:1}],['fast','FAST',{tk:.72}],['free','FREE',{evK:1.4}]]}
+];
+var PREF_SEL={genre:null,mood:null,theme:null,tempo:null};
+function buildPref(){
+  var P={modes:null,tk:1,modK:1,evK:1,restK:1,reg:0,chrom:0,off:[0,0,0,0,0,0,0,0]},any=false,gm=null,mm=null;
+  PREF_GROUPS.forEach(function(g){
+    var sel=PREF_SEL[g.id];if(!sel)return;
+    g.opts.forEach(function(o){
+      if(o[0]!==sel)return;any=true;var x=o[2];
+      if(x.modes){if(g.id==='genre')gm=x.modes;else if(g.id==='mood')mm=x.modes;}
+      ['tk','modK','evK','restK'].forEach(function(k){if(x[k])P[k]*=x[k];});
+      if(x.reg)P.reg+=x.reg;if(x.chrom)P.chrom=Math.max(P.chrom,x.chrom);
+      if(x.off)for(var i in x.off)P.off[i]+=x.off[i];
+    });
+  });
+  if(!any)return null;
+  if(gm&&mm){var both=mm.filter(function(m){return gm.indexOf(m)>=0;});P.modes=both.length?both:mm;}   /* mood leads, genre limits */
+  else P.modes=mm||gm;
+  return P;
+}
+function applyPrefs(state){
+  var P=state.pref=buildPref();if(!P)return;
+  var k=state.key;
+  if(P.modes&&P.modes.indexOf(k.mode)<0){
+    var md=pick(P.modes);
+    var nk={tonic:k.tonic,mode:md,scale:MODES[md],root:k.root,name:NOTE_NAMES[k.tonic]+' '+md};
+    state.key=nk;state.keyName=nk.name;state.center=midiToDeg(Math.round(state.wc),nk);
+  }
+  state.center+=P.reg;
+  if(P.chrom)state.rule.chrom=P.chrom;
+  state.u0=state.u1=state.unit=UNIT*P.tk;
+  setWindow(state);
+}
+(function(){   /* chips: click to choose, click again to go back to "auto" */
+  var host=document.getElementById('prefs');if(!host)return;
+  PREF_GROUPS.forEach(function(g){
+    var row=document.createElement('div');row.className='prow';
+    var lb=document.createElement('span');lb.className='plabel';lb.textContent=g.label;row.appendChild(lb);
+    g.opts.forEach(function(o){
+      var b=document.createElement('button');b.className='chip';b.textContent=o[1];b.type='button';
+      b.addEventListener('mousedown',function(e){e.preventDefault();});   /* keep focus off, so Enter still means BEGIN */
+      b.addEventListener('click',function(){
+        PREF_SEL[g.id]=PREF_SEL[g.id]===o[0]?null:o[0];
+        Array.prototype.forEach.call(row.querySelectorAll('.chip'),function(c){c.classList.toggle('on',c===b&&PREF_SEL[g.id]===o[0]);});
+      });
+      row.appendChild(b);
+    });
+    host.appendChild(row);
+  });
+})();
+
 /* ========== KEYBOARD ========== */
 var LOW=21,HIGH=108;
 var BLACK_SET={1:1,3:1,6:1,8:1,10:1};
@@ -2339,7 +2405,7 @@ function startGeneration(){
   if(!AC){setCounterHTML('<span>AUDIO NOT SUPPORTED</span>');return;}
   keepOn();
   setKeyboardRange(60,84,true);
-  composer=createComposer(inputNotes.slice());
+  composer=createComposer(inputNotes.slice());applyPrefs(composer);
   gen={active:false,t:0,startT:0,evs:[],segs:[]};
   visQ=[];
   view={notes:0,stage:0,tag:'',bars:0,mem:composer.memory.motifs.length,flashText:null,flashUntil:0};
@@ -2551,6 +2617,7 @@ function updateUI(){
   else setCounterHTML('');
 
   var gening=phase==='generating';
+  document.getElementById('prefs').classList.toggle('hidden',phase!=='input');
   cornersEl.classList.toggle('hidden',!gening);
   vizCanvas.classList.toggle('hidden',!gening);
   vizVisible=gening;
