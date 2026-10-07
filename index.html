@@ -874,7 +874,7 @@ function buildSegment(state,N){
   var phBase=prevLast==null?state.center:prevLast,phDir=1,ARCH=[0,1.5,3,1];
   for(var j=0;j<n;j++){
     if(j%4===0){phBase=prevLast==null?state.center:prevLast;phDir=Math.random()<.6?1:-1;}
-    var want=phBase+phDir*ARCH[j%4]+2*Math.max(0,1-Math.abs(j-Math.floor(n*.65))/2);
+    var want=phBase+phDir*ARCH[j%4]+2*Math.max(0,1-Math.abs(j-Math.floor(n*(state.climaxFrac||.65)))/2);
     want=Math.max(state.dmin+2,Math.min(state.dmax-2,want));
     var kind=barKind(j);
     if(stage>=2&&j>0&&j<n-1&&Math.random()<0.10+0.30*(state.g||0))kind=Math.random()<0.5?'Run':'Arp';
@@ -941,12 +941,13 @@ function scoreSegment(state,bars){
 function barsToEvents(state,bars,vs,kind){
   var key=state.key,flat=[],evs=[],total=bars.length,bi,i,k;
   for(bi=0;bi<total;bi++)for(i=0;i<bars[bi].length;i++)flat.push({n:bars[bi][i],bar:bi});
-  var phMax={};
-  for(k=0;k<flat.length;k++){var fn=flat[k].n,g0=Math.floor(flat[k].bar/4);if(!fn.rest&&(phMax[g0]==null||fn.deg>phMax[g0]))phMax[g0]=fn.deg;}
+  var phMax={};state.segMax=-99;
+  for(k=0;k<flat.length;k++){var fn=flat[k].n,g0=Math.floor(flat[k].bar/4);if(!fn.rest&&(phMax[g0]==null||fn.deg>phMax[g0]))phMax[g0]=fn.deg;if(!fn.rest&&fn.deg>state.segMax)state.segMax=fn.deg;}
   for(k=0;k<flat.length;k++){
     var n=flat[k].n,u=n.dur,pp=Math.max(0,Math.min(1,(flat[k].bar*8+(n.pos||0))/(total*8))),un=state.u0+(state.u1-state.u0)*pp,dy=state.d0+(state.d1-state.d0)*pp;
     if(n.rest){evs.push({rest:true,duration:u*un,kind:kind});continue;}
     var d=n.deg,m=degToMidi(d,key);
+    if(n.semi)m+=n.semi;
     while(m>state.khi)m-=12;
     while(m<state.klo)m+=12;
     if(key.mode==='minor'&&mod7(d)===6&&m<state.khi){
@@ -966,7 +967,8 @@ function barsToEvents(state,bars,vs,kind){
     var v=(base*arc+rand(-0.03,0.03))*dy*1.1*vs;
     var g1=Math.floor(flat[k].bar/4),pph=Math.min(1,((flat[k].bar%4)*8+pos)/32);
     v*=(.78+.32*Math.sin(Math.PI*pph))*(g1%2?.88:1);          /* each phrase swells and relaxes; answers are softer */
-    if(n.deg===phMax[g1])v*=1.22;                              /* the phrase's high point is stressed */
+    if(n.deg===phMax[g1])v*=1.22;
+    if(n.deg===state.segMax)v*=1.1;   /* the summit of the whole segment */                              /* the phrase's high point is stressed */
     if(n.dur>=3)v*=1.1;else if(n.dur<=1&&pos%2!==0)v*=.84;     /* long notes sing, passing notes recede */
     if(pos%4===0&&Math.random()<0.05+0.2*(state.g||0))v*=1.35;   /* sforzando */
     v=Math.max(0.06,Math.min(1,v));
@@ -1036,15 +1038,22 @@ function xform(state,m){
   fixM(r);r.id=state.nextId++;r.fit=motifFit(r,state);return r;
 }
 function memTheme(state){
+  if(state.seedMotif&&Math.random()<.22)return dnaVariant(state);   /* ORIGINAL DNA resurfaces, transformed */
   var M=state.mem,r=xform(state,pick(M.themes.concat(M.frag)));
   if(Math.random()<.5)r=xform(state,r);
   if(motifKey(r)===motifKey(state.theme)){r=mutateMotif(r,state);fixM(r);r.fit=motifFit(r,state);}
   return r;
 }
-function discoverTheme(state){   /* a theme born from a counter-melody fragment */
-  var c=state.cdeg;if(!c||c.length<4)return null;
-  var r=fixM({rh:pickCell(state.g||0,4),deg:c.slice(0,4).map(function(x){return x-c[0];})});
-  r.id=state.nextId++;r.fit=motifFit(r,state);return r;
+function discoverTheme(state){   /* a theme born from the best 4-6 note window of counter-melody fragments */
+  var srcs=[],best=null;
+  if(state.cdeg&&state.cdeg.length>=4)srcs.push(state.cdeg);
+  state.mem.frag.forEach(function(f){srcs.push(f.deg);});
+  srcs.forEach(function(c){for(var len=4;len<=Math.min(6,c.length);len++)for(var s=0;s+len<=c.length;s++){
+    var rh=pickCell(state.g||0,len),r=fixM({rh:rh,deg:c.slice(s,s+len).map(function(x){return x-c[s];})});
+    r.fit=motifFit(r,state)-(countNotes(rh)===len?0:1);if(!best||r.fit>best.fit)best=r;}});
+  if(!best)return null;
+  if(Math.random()<.5){best=mutateMotif(best,state);fixM(best);}
+  best.id=state.nextId++;best.fit=motifFit(best,state);return best;
 }
 function simpleTheme(state){
   var best=null,i;
@@ -1069,7 +1078,7 @@ function freshTheme(state){
 }
 function renewTheme(state){
   var r=Math.random(),m,lab='NEW THEME';
-  if(r<.25&&(m=discoverTheme(state)))lab='NEW THEME \u00b7 FROM COUNTER';
+  if(r<.35&&(m=discoverTheme(state)))lab='NEW THEME \u00b7 FROM COUNTER';
   else if(r<.8&&state.mem.themes.length>1)m=memTheme(state);
   else m=freshTheme(state);
   setTheme(state,m,lab);
@@ -1274,7 +1283,7 @@ function evoVoices(state,bars,main,E){
   if(E.type==='climax'||E.type==='collapse')main[main.length-1].duration*=1.6;   /* fermata */
   var notes=0;for(k=0;k<main.length;k++)if(!main[k].rest)notes++;
   E.dens=Math.round(100*Math.min(1,.45*(nv-1)/4+.55*Math.min(1,(notes/Math.max(1,total))/6)));
-  main[0].evo='PHASE '+E.phase+' '+PH_NAME[E.phase]+' \u00b7 VOICES '+nv+' \u00b7 TENSION '+Math.round(E.T)+' \u00b7 DENSITY '+E.dens+' \u00b7 NOVELTY '+Math.round(E.nov*100);
+  main[0].evo='PHASE '+E.phase+' '+PH_NAME[E.phase]+' \u00b7 VOICES '+nv+' \u00b7 TENSION '+Math.round(E.T)+' \u00b7 DENSITY '+E.dens+' \u00b7 NOVELTY '+Math.round(E.nov*100)+(E.dbg?' \u00b7 '+E.dbg:'');
 }
 /* self-evaluation: novelty vs. memory, tension fit, avoiding both "too safe" and "too random" */
 function sigOf(bars){
@@ -1302,6 +1311,214 @@ function evoAfter(state,E,best,bars){
   pushq(M.harm,(bars.prog||[]).join('-'),24);pushq(M.keys,state.key.name,12);
   pushq(M.tempos,Math.round(state.unit*100),12);pushq(M.regs,state.center,12);
 }
+/* ========== MELODIC INTELLIGENCE LAYER ==========
+   expectation / story / memorability / DNA / harmony<->melody / multi-stage selection / multi-viewpoint pools / crossover */
+function neg(x){return -x;}
+function ivOf(a){var o=[];for(var i=1;i<a.length;i++)o.push(a[i]-a[i-1]);return o;}
+function flatNotes(bars){var o=[];bars.forEach(function(b,bi){b.forEach(function(n){if(!n.rest)o.push({d:n.deg,u:n.dur,p:n.pos||0,b:bi});});});return o;}
+function copyBars(bars){var o=bars.map(function(b){return b.map(function(n){var c={deg:n.deg,dur:n.dur,pos:n.pos};if(n.rest)c.rest=true;if(n.semi)c.semi=n.semi;return c;});});o.prog=bars.prog?bars.prog.slice():null;return o;}
+function foldBars(state,b){b.forEach(function(bar){bar.forEach(function(x){if(x.rest)return;while(x.deg>state.dmax)x.deg-=7;while(x.deg<state.dmin)x.deg+=7;});});}
+/* best similarity of an interval sequence to a target (original / inversion / retrograde / augmented / diminished) */
+function simSeq(iv,t){
+  var V=[[t,1],[t.map(neg),.9],[t.slice().reverse().map(neg),.85],[t.map(function(x){return Math.max(-4,Math.min(4,2*x));}),.8],[t.map(function(x){return x===0?0:sgn(x)*Math.max(1,Math.abs(x)>>1);}),.75]],best=0;
+  V.forEach(function(v){var m=v[0].length;if(m<3||iv.length<m)return;
+    for(var i=0;i+m<=iv.length;i++){var s=0;for(var j=0;j<m;j++){var df=Math.abs(iv[i+j]-v[0][j]);s+=df===0?1:df===1?.5:0;}s=s/m*v[1];if(s>best)best=s;}});
+  return best;
+}
+/* EXPECTATION: implication-realization + patterns learned inside the phrase. Target ~70% predictable / ~30% surprise,
+   with the surprises placed late (after leaps, near the close) and deviations from an established pattern rewarded. */
+function melodicExpectationScore(state,bars){
+  var N=flatNotes(bars),L=N.length,iv=[],i,q;
+  if(L<7)return{s:-3,pf:0};
+  for(i=1;i<L;i++)iv.push(N[i].d-N[i-1].d);
+  function cl(x){return Math.max(-4,Math.min(4,x));}
+  var seen={},hits=0,tot=0,surp=0,late=0,brk=0;
+  for(i=1;i<iv.length;i++){
+    var pv=iv[i-1],x=iv[i],a=Math.abs(pv),ax=Math.abs(x),k=cl(pv),impl,lrn=0,tab=seen[k];
+    impl=a>=3?((sgn(x)===-sgn(pv)&&ax<a)?1:0):a===0?(ax<=1?.8:0):((sgn(x)===sgn(pv)&&ax<=2)?1:(ax<=1?.5:0));
+    if(tab){var sm=0,c=tab[cl(x)]||0;for(q in tab)sm+=tab[q];lrn=c/sm;if(sm>=2&&lrn===0)brk++;}
+    tot++;
+    if(Math.max(impl,lrn)>=.5)hits++;else{surp++;late+=(i/iv.length>.55?1:0)+(a>=3?.5:0)+(i>=iv.length-3?.5:0);}
+    (seen[k]=seen[k]||{})[cl(x)]=(seen[k][cl(x)]||0)+1;
+  }
+  var pf=hits/tot,s=-Math.abs(pf-.7)*9;
+  if(surp===0)s-=2;else s+=Math.max(-1.5,Math.min(2.5,(late/surp-.45)*4));
+  s+=Math.min(1.5,brk*.6);
+  var la=Math.abs(iv[iv.length-1]);if(la>0&&la<=2)s+=.6;
+  return{s:s,pf:pf};
+}
+/* STORY: DEPARTURE -> RISE -> TENSION -> CLIMAX -> RELEASE. One clear summit, approached and left meaningfully. */
+function storyScore(state,bars){
+  var N=flatNotes(bars),L=N.length,nb=bars.length,s=0,i,mi=0,cnt=0,mx=-99,mn=99;
+  if(L<6)return -3;
+  for(i=0;i<L;i++){if(N[i].d>mx){mx=N[i].d;mi=i;}if(N[i].d<mn)mn=N[i].d;}
+  for(i=0;i<L;i++)if(N[i].d===mx)cnt++;
+  var fr=(N[mi].b*8+N[mi].p)/(nb*8);
+  s+=fr<.2?-3:(fr>=.45&&fr<=.85)?2.5:.3;                 /* summit position */
+  s-=(cnt-1)*.9;                                          /* repeated summits dilute it */
+  if(mi>=4){var h=mi>>1,a1=0,a2=0;for(i=0;i<h;i++)a1+=N[i].d;for(i=h;i<mi;i++)a2+=N[i].d;a1/=h;a2/=(mi-h);
+    s+=a2>a1+.4?1.6:-.6;                                  /* the way up */
+    var up=N[mi].d-N[mi-1].d;s+=(up>=1&&up<=4)?1:(up<0?-.5:0);}   /* approach interval */
+  if(N[mi].u>=2||N[mi].p%4===0)s+=.8;                     /* summit sits on a strong/long place */
+  if(mi<L-3){var t3=(N[L-1].d+N[L-2].d+N[L-3].d)/3;s+=t3<mx-2?1.5:-1;}   /* release */
+  var dn=[];for(i=0;i<nb;i++)dn.push(0);N.forEach(function(x){dn[x.b]++;});
+  if(dn[N[mi].b]>=dn[0])s+=.6;                            /* climax bar busier than the departure */
+  s-=.5*Math.max(0,3-(mx-mn));
+  return s;
+}
+/* MEMORABILITY: short distinctive figure that recurs, moderate complexity, theme return */
+function memorability(state,bars){
+  var N=flatNotes(bars),iv=ivOf(N.map(function(x){return x.d;})),L=iv.length,s=0,i;
+  if(L<6)return -3;
+  var g={},rep=0,zeros=0,u={},leaps=0,good=0,du={},dg={},rr=0,gk;
+  for(i=0;i+2<L;i++){gk=iv[i]+','+iv[i+1]+','+iv[i+2];if(iv[i]||iv[i+1]||iv[i+2]){g[gk]=(g[gk]||0)+1;if(g[gk]===2)rep++;}}
+  s+=Math.min(3,rep*1.2);
+  for(i=0;i<L;i++){if(iv[i]===0)zeros++;u[iv[i]]=1;}
+  var ur=Object.keys(u).length/L;
+  s+=(ur>=.2&&ur<=.5)?1.5:ur>.7?-2.5:ur<.12?-2:0;       /* neither too simple nor too complex */
+  if(zeros/L>.25)s-=2;
+  for(i=0;i<N.length;i++){du[N[i].u]=1;if(i+2<N.length){var k3=N[i].u+'/'+N[i+1].u+'/'+N[i+2].u;dg[k3]=(dg[k3]||0)+1;if(dg[k3]===2)rr++;}}
+  var nd=Object.keys(du).length;s+=(nd>=2&&nd<=4)?1.5:-1.5;s+=Math.min(1.5,rr*.4);
+  for(i=1;i<L;i++)if(Math.abs(iv[i-1])>=3){leaps++;if(iv[i]*iv[i-1]<0&&Math.abs(iv[i])<=2)good++;}
+  if(leaps>=1&&leaps<=3)s+=1;s+=Math.min(1,good*.5);    /* a signature leap, answered by a step */
+  if(state.theme)s+=simSeq(iv,ivOf(state.theme.deg))*2.2;   /* the theme returns, maybe transformed */
+  return s;
+}
+/* HARMONY <-> MELODY: the progression is derived from the melody (summit, strong beats, long notes) */
+function harmonizeToMelody(state,bars){
+  var n=bars.length-1,prog=[],mx=-99,j,prev=null,tw=0,tg=0;
+  bars.forEach(function(b){b.forEach(function(x){if(!x.rest&&x.deg>mx)mx=x.deg;});});
+  function wt(x){return(x.pos%4===0?2:.7)*(x.dur>=2?1.3:1)*(x.deg===mx?2.5:1);}
+  for(j=0;j<n;j++){
+    var cands=(j===0&&state.stage===0)?[0]:(j===n-1&&n>=2)?[3,1,4]:[0,3,5,4,1],bc=cands[0],bs=-1e9;
+    cands.forEach(function(c){
+      var sc=0;bars[j].forEach(function(x){if(!x.rest)sc+=isTone(x.deg,c)?wt(x):-.8*wt(x);});
+      if(prev!=null){if(NEXT_CHORD[prev]&&NEXT_CHORD[prev].indexOf(c)>=0)sc+=.8;if(c===prev)sc-=.5;}
+      sc+=Math.random()*.3;if(sc>bs){bs=sc;bc=c;}
+    });
+    prog.push(bc);prev=bc;
+    bars[j].forEach(function(x){if(x.rest)return;tw+=wt(x);if(isTone(x.deg,bc))tg+=wt(x);});
+  }
+  bars.prog=prog;bars.hs=tw?tg/tw:0;return bars;
+}
+/* ORIGINAL DNA: the human's five notes, returning as transformed variants (never a plain quote) */
+function dnaVariant(state){
+  var s=state.seedMotif,r={rh:s.rh.slice(),deg:s.deg.slice()},ops=['inv','retro','exp','con','end','rhy','orn','frag'],k=randInt(2,4),i,g=state.g||0;
+  for(i=0;i<k;i++){
+    var o=pick(ops),n=r.deg.length,iv=ivOf(r.deg),q;
+    if(o==='inv')r.deg=r.deg.map(neg);
+    else if(o==='retro')r.deg.reverse();
+    else if(o==='exp'){q=[0];iv.forEach(function(x){q.push(q[q.length-1]+Math.max(-4,Math.min(4,Math.round(x*1.6))));});r.deg=q;}
+    else if(o==='con'){q=[0];iv.forEach(function(x){q.push(q[q.length-1]+(x===0?0:sgn(x)*Math.max(1,Math.abs(x)>>1)));});r.deg=q;}
+    else if(o==='end')r.deg[n-1]+=pick([-2,-1,1,2]);
+    else if(o==='rhy')r.rh=pickCell(g,n);
+    else if(o==='orn'&&n<8){var p=randInt(1,n-1);r.deg.splice(p,0,r.deg[p-1]+pick([-1,1]));r.rh=pickCell(g,n+1);}
+    else if(o==='frag'&&n>=5){var st=Math.random()<.5?0:1;r.deg=r.deg.slice(st,st+4);r.rh=pickCell(g,4);}
+    fixM(r);
+  }
+  if(motifKey(r)===motifKey(s)){r=mutateMotif(r,state);fixM(r);}
+  r.id=state.nextId++;r.fit=motifFit(r,state);return r;
+}
+/* oddities, kept only if they survive evaluation */
+function weirdify(state,bars){
+  var b=copyBars(bars),n=b.length,k=pick(['leap','chrom','rest','long','reg','dec']),j=randInt(1,Math.max(1,n-2)),bar=b[Math.min(j,n-1)],idx=[],i;
+  bar.forEach(function(x,q){if(!x.rest)idx.push(q);});
+  if(!idx.length)return b;
+  var q=pick(idx),x=bar[q];
+  if(k==='leap')x.deg+=pick([-1,1])*randInt(5,7);
+  else if(k==='chrom')x.semi=pick([-1,1]);
+  else if(k==='rest'&&x.dur<=2&&q>0)bar[q]={rest:true,dur:x.dur,pos:x.pos};
+  else if(k==='long'&&q+1<bar.length&&!bar[q+1].rest){x.dur+=bar[q+1].dur;bar.splice(q+1,1);}
+  else if(k==='reg'){var sh=pick([-7,7]);for(i=j;i<n-1;i++)b[i].forEach(function(y){if(!y.rest)y.deg+=sh;});}
+  else if(k==='dec'){var lb=b[n-1],l=lb.length-1;while(l>0&&lb[l].rest)l--;lb[l].deg+=pick([1,2,-1]);}
+  foldBars(state,b);b.weird=k;return b;
+}
+/* CROSSOVER of parents saved from earlier stages (first half+second half / rhythm+pitch / rise+fall) */
+function crossBars(state,A,B,N){
+  var n=N-1,mode=pick(['half','rp','peak']),out=[],i,seam=-1,ab=A.bars.slice(0,-1),bb=B.bars.slice(0,-1);
+  if(!ab.length||!bb.length||n<2)return null;
+  function peakBar(bs){var m=-99,mi=0;bs.forEach(function(b,q){b.forEach(function(y){if(!y.rest&&y.deg>m){m=y.deg;mi=q;}});});return mi;}
+  function cb(x){return x.map(function(b){return b.map(function(y){var c={deg:y.deg,dur:y.dur,pos:y.pos};if(y.rest)c.rest=true;return c;});});}
+  if(mode==='half'){seam=Math.max(1,n>>1);for(i=0;i<seam;i++)out.push(ab[i%ab.length]);for(i=seam;i<n;i++)out.push(bb[(i-seam)%bb.length]);}
+  else if(mode==='peak'){var pa=peakBar(ab),pb=peakBar(bb);out=ab.slice(0,pa+1);seam=out.length;out=out.concat(bb.slice(pb+1));while(out.length<n)out.push(bb[out.length%bb.length]);out=out.slice(0,n);if(seam>=n)seam=-1;}
+  else{var pit=flatNotes(bb).map(function(x){return x.d;}),pi=0;
+    for(i=0;i<n;i++)out.push(ab[i%ab.length].map(function(y){return y.rest?{rest:true,dur:y.dur,pos:y.pos}:{deg:pit[pi++%pit.length],dur:y.dur,pos:y.pos};}));}
+  out=cb(out);
+  var fl=flatNotes(out);if(!fl.length)return null;
+  var want=state.lastDeg!=null?state.lastDeg+pick([-1,1,2]):state.center,sh0=want-fl[0].d;
+  out.forEach(function(b){b.forEach(function(y){if(!y.rest)y.deg+=sh0;});});
+  if(seam>0&&seam<n){
+    var la=lastDegOf(out[seam-1]),fb=flatNotes([out[seam]]);
+    if(fb.length){var sh=la+pick([-1,1,2])-fb[0].d;for(i=seam;i<n;i++)out[i].forEach(function(y){if(!y.rest)y.deg+=sh;});}
+  }
+  foldBars(state,out);
+  out.push(cadenceBar(lastDegOf(out[out.length-1]),[4,0],'full',pick(CAD_FULL),state.dmin,state.dmax));
+  out.x=mode;return out;
+}
+/* weights per phase: [natural, DNA, memory, expectation, story, harmony, originality] — safe early, exploratory mid, re-integrating at REBIRTH */
+var PH_W=[[1.2,1,1,.4,.8,1,.1],[1.1,.8,1,.6,.9,1,.3],[1,.5,1.3,.7,1,1,.3],[.9,.4,1,.9,1.1,.9,.5],[.9,.3,.9,1,1.1,1.2,.6],[.8,.3,.8,1.2,1,.9,.9],[.7,.2,.7,1.2,1.2,.8,1],[.5,.2,.5,1.4,1.3,.7,1.3],[1.3,.8,1,.3,.6,1,.1],[1,1.2,1.2,.8,1,1,.6],[.9,.6,1,1,1.2,1,1]];
+var PH_WEIRD=[.02,.04,.05,.08,.1,.15,.2,.35,.5,.1,.2];
+var CATS=['beauty','memory','surprise','orig','human'];
+function allParents(state){
+  var P=state.pools,o=[];if(!P)return o;
+  CATS.forEach(function(c){P[c]=P[c].filter(function(e){return state.stage-e.st<=16;});P[c].forEach(function(e){o.push(e);});});
+  return o;
+}
+function poolAdd(state,cat,c,v){
+  var P=state.pools||(state.pools={beauty:[],memory:[],surprise:[],orig:[],human:[]}),a=P[cat];
+  a.push({bars:copyBars(c.bars),v:v,st:state.stage});
+  a.sort(function(x,y){return y.v-x.v;});while(a.length>3)a.pop();
+}
+function catVal(c,cat){return cat==='beauty'?c.s1*.5+c.hm:cat==='memory'?c.me:cat==='surprise'?c.ex:cat==='orig'?c.es+(c.bars.weird?1:0):.5*c.st+.5*c.me+3*c.stepR+.5*c.hm;}
+/* hierarchical selection: many cheap candidates -> 50 -> 10 -> 5 (structure) -> harmony/DNA/connection -> final.
+   Candidate count adapts to a time budget so the browser stays responsive. */
+function evolveCandidates(state,N,E){
+  var t0=performance.now(),ph=Math.min(10,E.phase||0),W=PH_W[ph],wp=PH_WEIRD[ph],pool=[],par=allParents(state),budget=state.stage===0?50:90,b,tag;
+  while(pool.length<150&&(pool.length<24||performance.now()-t0<budget)){
+    state.climaxFrac=pick([.4,.5,.65,.65,.75,.85]);
+    b=null;tag='gen';
+    if(par.length>=2&&Math.random()<.3){var A=pick(par),B=pick(par);if(A!==B){b=crossBars(state,A,B,N);tag='x';}}
+    if(!b){b=buildSegment(state,N);tag='gen';}
+    if(Math.random()<wp){b=weirdify(state,b);tag='w';}
+    pool.push({bars:b,tag:tag});
+  }
+  state.climaxFrac=null;
+  function byDesc(k){return function(a,b){return b[k]-a[k];};}
+  pool.forEach(function(c){c.s1=scoreSegment(state,c.bars);});
+  pool.sort(byDesc('s1'));pool=pool.slice(0,Math.min(50,Math.max(10,Math.ceil(pool.length/3))));
+  pool.forEach(function(c){var e=melodicExpectationScore(state,c.bars);c.ex=e.s;c.pf=e.pf;c.me=memorability(state,c.bars);c.s2=c.s1*W[0]+c.ex*W[3]+c.me*W[2];});
+  pool.sort(byDesc('s2'));pool=pool.slice(0,10);
+  pool.forEach(function(c){c.st=storyScore(state,c.bars);var es=evoScore(state,c.bars,E);c.nov=es.nov;c.sig=es.sig;c.es=es.s;c.s3=c.s2+c.st*W[4]+c.es*(.4+.6*W[6]);});
+  pool.sort(byDesc('s3'));pool=pool.slice(0,5);
+  var want=(ph<=1||ph===9)?.55:.3;
+  pool.forEach(function(c){
+    harmonizeToMelody(state,c.bars);
+    var fl=flatNotes(c.bars),d=fl.map(function(x){return x.d;}),iv=ivOf(d),st=0,i;
+    for(i=0;i<iv.length;i++)if(Math.abs(iv[i])<=2)st++;
+    c.stepR=iv.length?st/iv.length:0;
+    c.hm=c.bars.hs*6-3+(c.bars.prog&&c.bars.prog.length&&c.bars.prog[c.bars.prog.length-1]===4?.5:0);
+    c.dna=simSeq(iv,ivOf(state.seedMotif.deg));
+    var dt=(1-Math.abs(c.dna-want)*2)*W[1]*1.2;
+    if(c.dna>=.8&&state.stage-(state.dnaStage==null?-9:state.dnaStage)<6)dt-=4+(c.dna>=.98?2:0);   /* never quote the 5 notes blatantly */
+    var cn=0;if(state.lastDeg!=null&&fl.length){var gp=Math.abs(fl[0].d-state.lastDeg);if(gp===0)cn-=.8;}
+    c.tot=c.s3+c.hm*W[5]+dt+cn;c.score=c.tot;
+  });
+  pool.sort(byDesc('tot'));
+  var med=pool[pool.length>>1].tot;
+  CATS.forEach(function(cat){var bc=null,bv=-1e9;pool.forEach(function(c){if(c.tot>=med){var v=catVal(c,cat);if(v>bv){bv=v;bc=c;}}});if(bc)poolAdd(state,cat,bc,bv);});
+  var win=pool[0];state.catRot=(state.catRot||0)+1;
+  if(Math.random()<.35){   /* choose by a different viewpoint instead of the plain top score */
+    var cat=CATS[state.catRot%5],bv2=-1e9;
+    pool.slice(0,4).forEach(function(c){var v=catVal(c,cat)+.35*c.tot;if(v>bv2){bv2=v;win=c;}});
+  }else{
+    var T=.5+wp*2,top=pool[0].tot;
+    win=weightedPick(pool.slice(0,4),pool.slice(0,4).map(function(c){return Math.exp((c.tot-top)/T);}));
+  }
+  pool.splice(pool.indexOf(win),1);pool.unshift(win);
+  if(win.dna>=.8){state.dnaStage=state.stage;flash(state,'DNA ECHO');}
+  E.dbg='EXPECT '+Math.round(win.pf*100)+' \u00b7 DNA '+Math.round(win.dna*100)+(win.bars.weird?' \u00b7 ODD '+win.bars.weird.toUpperCase():'')+(win.tag==='x'?' \u00b7 CROSS':'');
+  return pool;
+}
 function planStage(state){
   var stage=state.stage,stageNo=stage+1,N=segLenFor(stage),i,k;
   state.g=growth((state.t||0)*1000);
@@ -1313,9 +1530,7 @@ function planStage(state){
   setWindow(state);
   if(stage>=1)newFocus(state);
   evolve(state,14+2*Math.min(stage,8));
-  var cands=[],K=stage===0?6:12;
-  for(i=0;i<K;i++){var b=buildSegment(state,N),es=evoScore(state,b,E);cands.push({bars:b,score:scoreSegment(state,b)+(stage===0?0:es.s),nov:es.nov,sig:es.sig});}
-  cands.sort(function(a,b){return b.score-a.score;});
+  var cands=evolveCandidates(state,N,E);
   var best=cands[0],q=state.queue,evs,quiet=E.type==='collapse',bars=evoShape(state,best.bars,E);
   if(E.pre>0){
     q.push({rest:true,duration:E.pre,kind:'silence',flash:'SILENCE'});
