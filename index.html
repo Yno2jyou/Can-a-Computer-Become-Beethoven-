@@ -972,7 +972,7 @@ function barsToEvents(state,bars,vs,kind){
     if(n.dur>=3)v*=1.1;else if(n.dur<=1&&pos%2!==0)v*=.84;     /* long notes sing, passing notes recede */
     if(pos%4===0&&Math.random()<0.05+0.2*(state.g||0))v*=1.35;   /* sforzando */
     v=Math.max(0.06,Math.min(1,v));
-    evs.push({midi:m,duration:u*un,v:v,kind:kind,tn:kind==='draft'?0:state.leadTone});
+    evs.push({midi:m,duration:u*un*((flat[k].bar%4===3&&k+1<flat.length&&flat[k+1].bar!==flat[k].bar)?1.07:1),v:v,kind:kind,tn:kind==='draft'?0:state.leadTone});   /* phrase breathing */
   }
   for(i=evs.length-1;i>=0;i--)if(!evs[i].rest){evs[i].v*=0.9;break;}
   return evs;
@@ -1473,7 +1473,8 @@ function catVal(c,cat){return cat==='beauty'?c.s1*.5+c.hm:cat==='memory'?c.me:ca
 /* hierarchical selection: many cheap candidates -> 50 -> 10 -> 5 (structure) -> harmony/DNA/connection -> final.
    Candidate count adapts to a time budget so the browser stays responsive. */
 function evolveCandidates(state,N,E){
-  var t0=performance.now(),ph=Math.min(10,E.phase||0),W=PH_W[ph],wp=PH_WEIRD[ph],pool=[],par=allParents(state),budget=state.stage===0?50:90,b,tag;
+  formStep(state,ensureCM(state)&&E);var t0=performance.now(),ph=Math.min(10,E.phase||0),W=fnW(state,PH_W[ph]),wp=PH_WEIRD[ph]*(FN_X[state.cm.fn]||1),pool=[],par=allParents(state),budget=state.stage===0?50:90,b,tag;
+  if(state.cm.abandoned.length&&/CONTRAST|DEV|RETURN/.test(state.cm.fn)&&Math.random()<.3){var ab=pick(state.cm.abandoned);if(ab.bars)par.push({bars:ab.bars,v:0,st:state.stage});}   /* an old idea is revived */
   while(pool.length<150&&(pool.length<24||performance.now()-t0<budget)){
     state.climaxFrac=pick([.4,.5,.65,.65,.75,.85]);
     b=null;tag='gen';
@@ -1492,7 +1493,7 @@ function evolveCandidates(state,N,E){
   pool.sort(byDesc('s3'));pool=pool.slice(0,5);
   var want=(ph<=1||ph===9)?.55:.3;
   pool.forEach(function(c){
-    harmonizeToMelody(state,c.bars);
+    coCompose(state,c.bars);
     var fl=flatNotes(c.bars),d=fl.map(function(x){return x.d;}),iv=ivOf(d),st=0,i;
     for(i=0;i<iv.length;i++)if(Math.abs(iv[i])<=2)st++;
     c.stepR=iv.length?st/iv.length:0;
@@ -1501,7 +1502,7 @@ function evolveCandidates(state,N,E){
     var dt=(1-Math.abs(c.dna-want)*2)*W[1]*1.2;
     if(c.dna>=.8&&state.stage-(state.dnaStage==null?-9:state.dnaStage)<6)dt-=4+(c.dna>=.98?2:0);   /* never quote the 5 notes blatantly */
     var cn=0;if(state.lastDeg!=null&&fl.length){var gp=Math.abs(fl[0].d-state.lastDeg);if(gp===0)cn-=.8;}
-    c.tot=c.s3+c.hm*W[5]+dt+cn;c.score=c.tot;
+    c.tot=c.s3+c.hm*W[5]+dt+cn;c.cs=composerScore(state,c);c.tot+=c.cs.total+c.bars.mut*.3;c.score=c.tot;
   });
   pool.sort(byDesc('tot'));
   var med=pool[pool.length>>1].tot;
@@ -1515,9 +1516,196 @@ function evolveCandidates(state,N,E){
     win=weightedPick(pool.slice(0,4),pool.slice(0,4).map(function(c){return Math.exp((c.tot-top)/T);}));
   }
   pool.splice(pool.indexOf(win),1);pool.unshift(win);
+  afterSelect(state,win,pool,E);
   if(win.dna>=.8){state.dnaStage=state.stage;flash(state,'DNA ECHO');}
-  E.dbg='EXPECT '+Math.round(win.pf*100)+' \u00b7 DNA '+Math.round(win.dna*100)+(win.bars.weird?' \u00b7 ODD '+win.bars.weird.toUpperCase():'')+(win.tag==='x'?' \u00b7 CROSS':'');
+  E.dbg='EXPECT '+Math.round(win.pf*100)+' \u00b7 DNA '+Math.round(win.dna*100)+(win.bars.weird?' \u00b7 ODD '+win.bars.weird.toUpperCase():'')+(win.tag==='x'?' \u00b7 CROSS':'')+' \u00b7 '+state.cm.fn+' \u00b7 DEBT '+state.cm.debts.length+'/'+state.cm.resolved;
   return pool;
+}
+/* ========== COMPOSER LAYER: musical debt / memory / form / hierarchical expectation / co-composition / trajectory ========== */
+function ensureCM(state){
+  if(state.cm)return state.cm;
+  var s=state.seedMotif,iv=ivOf(s.deg);
+  return state.cm={seedDNA:{iv:iv,contour:iv.map(sgn),rh:s.rh.slice(),accent:s.rh.map(function(u){return u>=2?1:0;}),frags:[iv.slice(0,3),iv.slice(1,4),iv.slice(0,2)]},
+    theme0:cloneMotif(s),motifs:[],debts:[],resolved:0,returns:[],phraseHistory:[],sectionHistory:[],climaxHistory:[],abandoned:[],ivCount:{},form:null,homeKey:state.key,nid:1,fn:'THEME'};
+}
+/* ---- FORM PLANNER: a loose plan of where the piece is and where it must go; sections carry their own demands ---- */
+var FORMS=[['INTRO','THEME','CONTRAST','DEV','TENSION','CLIMAX','RELEASE','RETURN','CODA'],['THEME','CONTRAST','DEV','CLIMAX','RETURN','CODA'],
+  ['THEME','CONTRAST','THEME','DEV','TENSION','CLIMAX','RETURN','CODA'],['THEME','DEV','DEV','TENSION','CLIMAX','RETURN'],['INTRO','THEME','DEV','CONTRAST','CLIMAX','RELEASE','RETURN']];
+var FN_T={INTRO:.15,THEME:.3,CONTRAST:.45,DEV:.6,TENSION:.8,CLIMAX:1,RELEASE:.3,RETURN:.4,CODA:.15};
+var FN_D={INTRO:[1,2],THEME:[2,3],CONTRAST:[2,3],DEV:[2,4],TENSION:[2,2],CLIMAX:[1,2],RELEASE:[1,2],RETURN:[2,3],CODA:[1,2]};
+var FN_W={INTRO:[.3,1.2,0,0,0],THEME:[.4,1,0,0,0],CONTRAST:[.6,.8,0,0,1.2],DEV:[.9,1,.3,0,.5],TENSION:[1.3,.8,0,.4,.4],CLIMAX:[1,.4,.6,1.5,0],RELEASE:[1,.4,.3,0,0],RETURN:[1.2,.3,1.6,.3,0],CODA:[1,.2,1,0,0]};  /* debt, future, return, climax, contrast */
+var FN_X={INTRO:.6,THEME:.8,CONTRAST:1.6,DEV:1.4,TENSION:.7,CLIMAX:.6,RELEASE:.8,RETURN:.5,CODA:.4};
+function newForm(state){
+  var cm=state.cm,t=pick(FORMS).slice();
+  if(Math.random()<.3&&t.length>5)t.splice(randInt(2,t.length-3),1);
+  return{type:t.join('>'),idx:0,secs:t.map(function(fn){return{fn:fn,tension:FN_T[fn],dur:randInt(FN_D[fn][0],FN_D[fn][1]),n:0,
+    region:fn==='DEV'||fn==='CONTRAST'?'away':'home',expClimax:fn==='TENSION',expReturn:fn==='DEV'||fn==='CLIMAX',debtsOpen:0};})};
+}
+function developMotif(state,m,goal){
+  var r={rh:m.rh.slice(),deg:m.deg.slice()},iv=ivOf(r.deg),n=r.deg.length,g=state.g||0,sd=state.seedMotif.deg,h=Math.ceil(n/2),keep='interval';
+  if(goal==='contrast'){r.deg=r.deg.map(neg);r.rh=pickCell(g,n);keep='inverted contour';}      /* same intervals mirrored, new rhythm */
+  else if(goal==='tension'){r.deg[n-1]+=(sgn(iv[iv.length-1])||1)*pick([1,2]);keep='rhythm';}   /* rhythm kept, last step stretched */
+  else if(goal==='climax'){var b=Math.floor(sd.length/2);r.deg=r.deg.slice(0,h).concat(sd.slice(b).map(function(x){return x-sd[b]+r.deg[h-1]+1;}));r.rh=pickCell(g,r.deg.length);keep='theme head + DNA tail';}
+  else if(goal==='release'){r.deg=r.deg.map(function(x,i){return Math.round(x*.6);});keep='rhythm';}
+  else if(goal==='memory'){r.deg=sd.slice(0,3);r.rh=pickCell(0,3);keep='DNA core';}
+  fixM(r);r.id=state.nextId++;r.fit=motifFit(r,state);r.role=goal;r.keep=keep;return r;
+}
+function returnTheme(state,kind){
+  var b=state.cm.theme0,r={rh:b.rh.slice(),deg:b.deg.slice()},n=r.deg.length;
+  if(kind==='inverse')r.deg=r.deg.map(neg);
+  else if(kind==='complete')r.deg[n-1]=r.deg[0];                                      /* the unfinished idea finally closes */
+  else r.rh=pickCell(state.g||0,n);                                                     /* same meaning, new rhythm */
+  fixM(r);r.id=state.nextId++;r.fit=motifFit(r,state);r.role='return-'+kind;return r;
+}
+function goHome(state){
+  var k=state.cm.homeKey;if(state.key.name===k.name)return;
+  var oldM=state.lastDeg!=null?degToMidi(state.lastDeg,state.key):null;
+  state.center=midiToDeg(degToMidi(state.center,state.key),k);state.key=k;state.keyName=k.name;
+  if(oldM!=null)state.lastDeg=midiToDeg(oldM,k);flash(state,'RETURN HOME \u00b7 '+k.name.toUpperCase());
+}
+function formStep(state,E){
+  var cm=ensureCM(state),F=cm.form;
+  if(!F||F.idx>=F.secs.length)F=cm.form=newForm(state);
+  var S=F.secs[F.idx];S.n++;cm.fn=S.fn;cm.sec=S;
+  if(S.n===1){
+    S.debtsOpen=cm.debts.length;
+    if(S.fn==='CONTRAST')setTheme(state,developMotif(state,state.theme,'contrast'),'CONTRAST');
+    else if(S.fn==='DEV'||S.fn==='TENSION')setTheme(state,developMotif(state,state.theme,'tension'),null);
+    else if(S.fn==='CLIMAX')setTheme(state,developMotif(state,state.theme,'climax'),'CLIMAX MATERIAL');
+    else if(S.fn==='RELEASE')setTheme(state,developMotif(state,state.theme,'release'),null);
+    else if(S.fn==='CODA')setTheme(state,developMotif(state,state.theme,'memory'),'MEMORY');
+    else if(S.fn==='RETURN'){
+      var open=cm.debts.some(function(d){return d.type==='cadence';}),kind=open?'complete':pick(['same','inverse','complete']);
+      goHome(state);setTheme(state,returnTheme(state,kind),'THEME RETURNS \u00b7 '+kind.toUpperCase());cm.returns.push({kind:kind,stage:state.stage});
+      if(cm.returns.length>12)cm.returns.shift();
+    }
+  }
+}
+/* ---- MUSICAL DEBT: promise -> memory -> postponement -> intensification -> transformation -> payoff (or abandonment) ---- */
+function addDebt(cm,type,target,str,imp,state,ctx){
+  if(cm.debts.length>=12){cm.debts.sort(function(a,b){return b.urgency-a.urgency;});cm.abandoned.push({debt:cm.debts.pop(),stage:state.stage});}
+  cm.debts.push({id:cm.nid++,type:type,sourceMotif:state.theme?state.theme.id:null,sourcePhrase:state.stage,harmonicContext:ctx,target:target,strength:str,age:0,urgency:str,importance:imp,
+    possibleResolutions:type==='cadence'?['tonic']:['same','inverted','fragment'],resolved:false,cancelled:false,reinterpreted:false});
+}
+function makeDebts(state,c){
+  var cm=state.cm,fl=flatNotes(c.bars),d=fl.map(function(x){return x.d;}),iv=ivOf(d),L=iv.length,i,ctx=c.bars.prog?c.bars.prog[c.bars.prog.length-1]:null;
+  if(mod7(d[d.length-1])!==0)addDebt(cm,'cadence',{tonic:1},.5,.7,state,ctx);
+  var g={},bestg=null,bs=-1;
+  for(i=0;i+4<=L;i++){var gr=iv.slice(i,i+4),k=gr.join(',');g[k]=(g[k]||0)+1;var v=0,u={};gr.forEach(function(x){u[x]=1;if(Math.abs(x)>=3)v+=2;});v+=Object.keys(u).length;if(v>bs){bs=v;bestg=gr;}}
+  if(bestg&&g[bestg.join(',')]===1&&bs>=4)addDebt(cm,'motif',{iv:bestg},.4,.8,state,ctx);
+  var ml=0;iv.forEach(function(x){if(Math.abs(x)>Math.abs(ml))ml=x;});if(Math.abs(ml)>=4)addDebt(cm,'leap',{size:Math.abs(ml),sign:sgn(ml)},.45,.6,state,ctx);
+  if(cm.fn!=='CLIMAX'&&cm.sec&&cm.sec.expClimax&&iv.length>=3)addDebt(cm,'preview',{iv:iv.slice(Math.max(0,iv.indexOf(Math.max.apply(null,iv))-2),Math.max(0,iv.indexOf(Math.max.apply(null,iv))-2)+3)},.5,.9,state,ctx);
+  if(cm.returns.length===0||state.stage-cm.returns[cm.returns.length-1].stage>10)addDebt(cm,'return',{iv:ivOf(state.theme.deg)},.3,.8,state,ctx);
+}
+function ageDebts(cm,state){
+  var keep=[];
+  cm.debts.forEach(function(x){
+    x.age++;x.strength=Math.min(1,x.strength*1.08+.015);x.urgency=x.strength*(1+x.age/10)*x.importance;
+    if(x.age>10&&!x.reinterpreted&&x.target.iv){x.target={iv:Math.random()<.5?x.target.iv.map(neg):x.target.iv.slice().reverse()};x.reinterpreted=true;x.strength*=.7;}   /* the promise changes meaning */
+    if(x.age>18&&Math.random()<.35){x.cancelled=true;cm.abandoned.push({debt:x,stage:state.stage});}
+    else keep.push(x);
+  });
+  for(var i=0;i<keep.length;i++)for(var j=i+1;j<keep.length;j++){var a=keep[i],b=keep[j];
+    if(a&&b&&a.type==='motif'&&b.type==='motif'&&simSeq(a.target.iv,b.target.iv)>.75){a.strength=Math.min(1,a.strength+.2);keep.splice(j,1);j--;}}   /* merge */
+  cm.debts=keep;while(cm.abandoned.length>10)cm.abandoned.shift();
+}
+function debtScore(state,c,iv,d){
+  var cm=state.cm,s=0;c.resolves=[];
+  cm.debts.forEach(function(x){
+    var m=0,kind='same';
+    if(x.age<2+Math.floor(x.importance*3))return;   /* promises are postponed before they can be paid */
+    if(x.type==='cadence'){if(mod7(d[0])===0&&state.cm.fn!=='THEME'){m=.8;}}
+    else if(x.type==='leap'){for(var i=0;i<iv.length;i++)if(sgn(iv[i])===x.target.sign&&Math.abs(iv[i])>=x.target.size-1){m=.8;break;}}
+    else if(x.target.iv&&x.target.iv.length>=3){var a=simSeq(iv,x.target.iv),b=simSeq(iv,x.target.iv.map(neg))*.9;m=Math.max(a,b);kind=b>a?'inverted':'same';if(m>.97)m*=.6;if(m<.78)m=0;}
+    if(m>.6){s+=x.strength*x.importance*3*m;c.resolves.push({id:x.id,kind:kind});}
+  });
+  return Math.min(8,s);
+}
+/* ---- hierarchical expectation + future ---- */
+function candShape(c,fl){
+  var d=fl.map(function(x){return x.d;}),n=d.length,t=Math.max(1,n>>1),a=0,b=0,i,mn=99,mx=-99,lp=0;
+  for(i=0;i<t;i++)a+=d[i];for(i=n-t;i<n;i++)b+=d[i];
+  d.forEach(function(x,k){if(x<mn)mn=x;if(x>mx)mx=x;if(k&&Math.abs(x-d[k-1])>=3)lp++;});
+  return{dir:sgn(Math.round(b/t-a/t)),mean:d.reduce(function(p,q){return p+q;},0)/n,dens:n/(c.bars.length*5),rg:mx-mn,lp:lp/Math.max(1,n-1)};
+}
+function hierScore(state,c,fl,th,sh){
+  var cm=state.cm,P=cm.phraseHistory[cm.phraseHistory.length-1],S=cm.sec,note=c.ex*.3,motif=th*3+c.me*.2,phrase=0,sec,form=0;
+  if(P){if(P.dir>0&&sh.dir<0)phrase=1.5;else if(P.dir<0&&sh.dir>0)phrase=.6;else if(P.dir!==0&&P.dir===sh.dir)phrase=-.8;}                 /* question -> answer */
+  var ct=Math.min(1,sh.rg/12*.4+sh.dens*.3+sh.lp*1.2);sec=2-Math.abs(ct-(S?S.tension:.4))*5;                                            /* section tension fit */
+  form=(cm.fn==='CLIMAX'||cm.fn==='TENSION')?c.st*.2:(cm.fn==='CODA'||cm.fn==='RELEASE')?(mod7(fl[fl.length-1].d)===0?1.5:-.5):0;       /* where the piece must go */
+  return{note:note,motif:motif,phrase:phrase,section:sec,form:form,total:note+motif+phrase+sec+form};
+}
+function futurePotential(state,c,iv,th){
+  var g={},rep=0,u={},i,s=0,last=c.bars.prog&&c.bars.prog.length?c.bars.prog[c.bars.prog.length-1]:3;
+  for(i=0;i+3<=iv.length;i++){var k=iv.slice(i,i+3).join(',');g[k]=(g[k]||0)+1;if(g[k]===2)rep++;}
+  iv.forEach(function(x){u[x]=1;});var nu=Object.keys(u).length;
+  s+=Math.min(1,rep*.5)+(nu>=3&&nu<=6?.6:0)+th*.8+((NEXT_CHORD[last]||[]).length/5)*.5;      /* identity, transformability, harmonic continuation */
+  return s;
+}
+function trajectory(state,c){   /* cheap look-ahead: can later parents still pay the debts this choice leaves open? */
+  var cm=state.cm,par=allParents(state),cnt=0;
+  par.slice(0,8).forEach(function(p){var iv=ivOf(flatNotes(p.bars).map(function(x){return x.d;}));
+    cm.debts.some(function(x){return x.target.iv&&simSeq(iv,x.target.iv)>.7;})&&cnt++;});
+  return Math.min(3,cnt)*.4+Math.min(1,cm.debts.length/6)*.3;
+}
+function infoDensity(c,iv,th,dna){
+  var k=0;if(th>.5)k++;if(dna>.5)k++;if(c.resolves.length)k++;if(c.bars.hs>.7)k++;if(c.pf>.5&&c.pf<.9)k++;if(c.me>2)k++;
+  return k/(1+flatNotes(c.bars).length/(c.bars.length*6))*.7;
+}
+function composerScore(state,c){
+  var cm=state.cm,fn=cm.fn,FW=FN_W[fn]||FN_W.THEME,fl=flatNotes(c.bars),d=fl.map(function(x){return x.d;}),iv=ivOf(d),sh=candShape(c,fl);
+  var th=state.theme?simSeq(iv,ivOf(state.theme.deg)):0,f0=simSeq(iv,ivOf(cm.theme0.deg)),P=cm.phraseHistory[cm.phraseHistory.length-1];
+  var h=hierScore(state,c,fl,th,sh),debt=debtScore(state,c,iv,d),fut=futurePotential(state,c,iv,th)+trajectory(state,c),info=infoDensity(c,iv,th,c.dna);
+  var ret=th*2+f0*2.5+c.dna-((th>.97||f0>.97)?3:0),clm=th*2+c.dna*2+f0*1.5+c.st*.3,con=0;
+  if(P)con=Math.min(3,Math.abs(sh.mean-P.mean)/3+Math.abs(sh.dens-P.dens)*3+(1-th));
+  var pot=c.tot<-2&&fut>2.2?1.5:0;     /* temporary imperfection: rough now, valuable later */
+  var total=h.total*.6+debt*FW[0]+fut*FW[1]*.8+ret*FW[2]+clm*FW[3]+con*FW[4]+info+pot;
+  return{total:total,h:h,debt:debt,fut:fut,sh:sh};
+}
+/* ---- MELODY <-> HARMONY: melody picks chords, chords pull the melody (leading-tone tendency), the mutually stronger pair wins ---- */
+function mutual(bars){
+  var p=bars.prog||[],s=(bars.hs||0)*6-3,j,run=0;
+  for(j=0;j+1<p.length;j++){
+    var a=flatNotes([bars[j]]),b=flatNotes([bars[j+1]]);
+    if(p[j]===4&&p[j+1]===0&&a.length&&b.length&&(mod7(a[a.length-1].d)===6||mod7(a[a.length-1].d)===1)&&(mod7(b[0].d)===0||mod7(b[0].d)===2))s+=.9;
+    var mv=mod7(p[j]-p[j+1]);if(mv===3||mv===4)s+=.3;
+    run=p[j]===p[j+1]?run+1:0;if(run>=2)s-=1;
+  }
+  return s;
+}
+function melodyFromHarmony(state,b){
+  var p=b.prog||[];
+  for(var j=0;j+1<p.length;j++)if(p[j]===4&&p[j+1]===0){
+    var bar=b[j],i=bar.length-1;while(i>0&&bar[i].rest)i--;var x=bar[i];
+    if(x&&!x.rest){var m=mod7(x.deg);if(m!==6&&m!==1){var up=mod7(x.deg+1),dn=mod7(x.deg-1);x.deg+=(up===6||up===1)?1:(dn===6||dn===1)?-1:0;}}
+  }
+}
+function coCompose(state,bars){
+  harmonizeToMelody(state,bars);var m0=mutual(bars),alt=copyBars(bars);
+  melodyFromHarmony(state,alt);harmonizeToMelody(state,alt);var m1=mutual(alt);
+  if(m1>m0){for(var j=0;j<bars.length;j++)bars[j]=alt[j];bars.prog=alt.prog;bars.hs=alt.hs;m0=m1;}
+  bars.mut=m0;return bars;
+}
+function fnW(state,W){
+  var o=W.slice(),fn=state.cm.fn;
+  if(fn==='CLIMAX')o[4]*=1.3;else if(fn==='TENSION')o[3]*=1.2;else if(fn==='INTRO'||fn==='THEME')o[2]*=1.3;else if(fn==='RETURN'||fn==='CODA')o[1]*=1.4;
+  return o;
+}
+/* bookkeeping after a choice: age/resolve debts, make new ones, remember phrase, keep rejected ideas for revival */
+function afterSelect(state,win,pool,E){
+  var cm=state.cm,F=cm.form,S=cm.sec;
+  ageDebts(cm,state);
+  var ids={};(win.resolves||[]).forEach(function(r){ids[r.id]=r.kind;});
+  cm.debts=cm.debts.filter(function(x){if(ids[x.id]){x.resolved=true;cm.resolved++;return false;}return true;});
+  makeDebts(state,win);
+  cm.phraseHistory.push({dir:win.cs.sh.dir,mean:win.cs.sh.mean,dens:win.cs.sh.dens,fn:cm.fn,stage:state.stage});if(cm.phraseHistory.length>16)cm.phraseHistory.shift();
+  if(cm.fn==='CLIMAX'){cm.climaxHistory.push({stage:state.stage,dna:win.dna});if(cm.climaxHistory.length>8)cm.climaxHistory.shift();}
+  var fl=flatNotes(win.bars);ivOf(fl.map(function(x){return x.d;})).forEach(function(x){cm.ivCount[x]=(cm.ivCount[x]||0)+1;});
+  pool.slice(1,3).forEach(function(c){cm.abandoned.push({bars:copyBars(c.bars),stage:state.stage});});
+  while(cm.abandoned.length>10)cm.abandoned.shift();
+  var th=state.theme,tk=th?motifKey(th):'',mm=null;cm.motifs.forEach(function(q){if(q.key===tk)mm=q;});
+  if(th&&!mm){cm.motifs.push({key:tk,role:th.role||'identity',keep:th.keep||'-',apps:1,first:state.stage,importance:1});if(cm.motifs.length>24)cm.motifs.shift();}else if(mm){mm.apps++;mm.importance+=.2;}
+  if(S&&S.n>=S.dur)F.idx++;
 }
 function planStage(state){
   var stage=state.stage,stageNo=stage+1,N=segLenFor(stage),i,k;
@@ -1525,7 +1713,7 @@ function planStage(state){
   var E=evoStep(state);
   if(E.type==='collapse')N=Math.min(N,4);
   if(stage>=1&&stage%2===1&&Math.random()<(E.type==='collapse'?0:.75))modulate(state);
-  if(stage>=3&&stage%3===0&&E.type==='norm'&&E.phase>=2)renewTheme(state);
+  if(stage>=3&&stage%3===0&&E.type==='norm'&&E.phase>=2&&Math.random()<.3)renewTheme(state);
   planTempoDyn(state);evoTempo(state,E);
   setWindow(state);
   if(stage>=1)newFocus(state);
