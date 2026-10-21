@@ -36,7 +36,7 @@
 
   /* Keyboard — desktop proportions, scaled to fit (no horizontal scroll) */
   #kb-scroll{
-    width:100%;max-width:960px;overflow:hidden;
+    width:100%;max-width:960px;overflow-x:auto;overflow-y:hidden;
   }
   #kb-wrap{
     width:960px;position:relative;
@@ -207,7 +207,7 @@ function _encodeWav(samples,sampleRate){
 }
 function makeWave(ctx){
   /* same timbre as before: fundamental + 2nd/3rd/4th partials, as ONE oscillator */
-  return ctx.createPeriodicWave(new Float32Array([0,0,0,0,0]),new Float32Array([0,1,0.30,0.12,0.05]));
+  return ctx.createPeriodicWave(new Float32Array(9),new Float32Array([0,1,0.5,0.33,0.25,0.18,0.12,0.08,0.05]));
 }
 function initAudio(){
   if(AC)return AC;
@@ -261,22 +261,30 @@ function heardTime(){
 /* one note = one oscillator + one gain. Exponential decay matches the old sample synth,
    a short release lets neighbouring notes join smoothly (no clicks, no pile-ups). */
 function voice(ctx,dest,w,midi,t,dur,vel,track){
-  var osc=ctx.createOscillator(),g=ctx.createGain(),gp=g.gain;
+  /* piano-like: quick hammer attack, upper partials fade faster than the fundamental, higher notes
+     decay faster, and the tone darkens as the note sounds (a lowpass that closes over time) */
+  var osc=ctx.createOscillator(),g=ctx.createGain(),gp=g.gain,lp=ctx.createBiquadFilter();
   osc.setPeriodicWave(w);
-  osc.frequency.value=440*Math.pow(2,(midi-69)/12);
+  var hz=440*Math.pow(2,(midi-69)/12);
+  osc.frequency.value=hz;
   var d=Math.max(0.06,dur),peak=vel*0.36;
-  var vRel=Math.max(0.0003,peak*Math.exp(-DECAY*(d-ATT)));
+  var dk=DECAY*(midi<48?0.8:midi>84?1.5:1+(midi-60)*0.004);
+  var vRel=Math.max(0.0003,peak*Math.exp(-dk*(d-ATT)));
   gp.setValueAtTime(0.0001,t);
   gp.linearRampToValueAtTime(peak,t+ATT);
   gp.exponentialRampToValueAtTime(vRel,t+d);
   gp.exponentialRampToValueAtTime(0.0001,t+d+REL);
-  osc.connect(g);g.connect(dest);
+  var f0=Math.min(9000,Math.max(900,hz*6)),f1=Math.max(450,f0*0.4);
+  lp.type='lowpass';lp.Q.value=0.4;
+  lp.frequency.setValueAtTime(f0,t);
+  lp.frequency.exponentialRampToValueAtTime(f1,t+Math.min(d,1.5));
+  osc.connect(lp);lp.connect(g);g.connect(dest);
   osc.start(t);osc.stop(t+d+REL+0.02);
   if(track){
     var vc={osc:osc,g:g,t:t};
     live.push(vc);
     osc.onended=function(){
-      try{osc.disconnect();g.disconnect();}catch(e){}
+      try{osc.disconnect();lp.disconnect();g.disconnect();}catch(e){}
       var i=live.indexOf(vc);if(i>=0)live.splice(i,1);
     };
   }
@@ -963,7 +971,7 @@ function addBass(state,bars,main){
       }
       /* a chord on every bar's first beat, so the sound is never a single line */
       [root,fifth,third].forEach(function(m){add(first,0,tot*.4,m,.4,1);});
-      if(e>=0.7){
+      if(e>=0.7&&state.thick>0.5){
         /* bold: block chords on the strong beats, in the brighter timbre */
         var blk=[root,fifth,third];if(sev!=null)blk.push(sev);
         blk.forEach(function(m){add(first,0,tot*.45,m,.5,1);});
@@ -1152,7 +1160,7 @@ function directorFit(state,b){
    semitones of a note already sounding (muddy clusters). Earlier-added notes (bass, chords) win;
    later inner / pulse / counter notes are removed first. */
 function thinTexture(state,main){
-  var MAXV=(state.evo&&state.evo.cx>0.35)?4:3,tS=[0],q,i,all=[],kept=[];
+  var MAXV=state.thick<0.5?2:state.thick>0.8?4:((state.evo&&state.evo.cx>0.35)?4:3),tS=[0],q,i,all=[],kept=[];
   for(q=0;q<main.length;q++)tS.push(tS[q]+main[q].duration);
   function melAt(t){
     for(var z=0;z<main.length;z++){
@@ -1178,10 +1186,56 @@ function thinTexture(state,main){
   main.forEach(function(ev){if(ev.acc)ev.acc=[];});
   kept.forEach(function(x){x.ref.acc.push(x.a);});
 }
+/* the piece changes character about every two minutes, but each change is a glide over several stages */
+var CHANGE_KINDS=['modulate','register','texture','rhythm','melody'];
+function setKeyTo(state,t,mode){
+  state.key={tonic:t,mode:mode,scale:MODES[mode],root:60+t,name:NOTE_NAMES[t]+' '+mode};
+  state.keyName=state.key.name;
+}
+function applyChange(state){
+  var last=state.changeLast,k=pick(CHANGE_KINDS.filter(function(x){return x!==last;})),label;
+  state.changeLast=k;
+  if(k==='modulate'){
+    var H=state.home||(state.home=state.key),cur=state.key,
+        cands=[{t:H.tonic,m:H.mode},{t:(H.tonic+7)%12,m:H.mode},{t:(H.tonic+5)%12,m:H.mode},H.mode==='major'?{t:(H.tonic+9)%12,m:'minor'}:{t:(H.tonic+3)%12,m:'major'}].filter(function(c){return c.t!==cur.tonic||c.m!==cur.mode;}),o=pick(cands);
+    state.pendingKey={at:state.stage+2,t:o.t,m:o.m};
+    label='MODULATE \u00b7 '+NOTE_NAMES[o.t].toUpperCase()+' '+o.m.toUpperCase();
+  }else if(k==='register'){
+    state.centerT=Math.max(state.dmin+4,Math.min(state.dmax-4,state.center+pick([-4,4])));
+    label='REGISTER SHIFT';
+  }else if(k==='texture'){
+    state.thickT=state.thickT>0.5?0.25:1;
+    label='TEXTURE \u00b7 '+(state.thickT>0.5?'FULL':'OPEN');
+  }else if(k==='rhythm'){
+    state.gT=state.gT>0.5?0.1:0.9;
+    label='RHYTHM CHANGE';
+  }else{
+    var best=null,i;
+    for(i=0;i<6;i++){var m=mutateMotif(newMotif(state),state);m.fit=motifFit(m,state);if(!best||m.fit>best.fit)best=m;}
+    state.pendingTheme={at:state.stage+2,m:best};
+    label='NEW MOTIF';
+  }
+  state.changeFlash='CHANGE \u00b7 '+label;
+}
+/* every stage the state moves a fraction of the way toward its targets; a chosen key or theme is taken up two stages later */
+function glideStep(state){
+  state.thick+=(state.thickT-state.thick)*.35;
+  state.g+=(state.gT-state.g)*.35;
+  if(state.centerT!=null&&state.center!==state.centerT)state.center+=Math.sign(state.centerT-state.center);
+  if(state.pendingTheme&&state.stage>=state.pendingTheme.at){
+    var pm=state.pendingTheme.m;state.theme=cloneMotif(pm);state.pop.push(pm);state.pendingTheme=null;
+  }
+  if(state.pendingKey&&state.stage>=state.pendingKey.at){
+    setKeyTo(state,state.pendingKey.t,state.pendingKey.m);state.pendingKey=null;
+  }
+}
 function planStage(state){
   var stage=state.stage,stageNo=stage+1,N=segLenFor(stage),i,k;
   syncRange(state);
+  glideStep(state);
   var E=evoStep(state);evoTempo(state,E);directorStep(state);directorTempo(state);
+  if(state.t>=state.changeAt){applyChange(state);state.changeAt+=120+rand(-15,15);}
+  if(state.changeFlash){E.flash=state.changeFlash;state.changeFlash=null;}
   evolve(state,14+2*Math.min(stage,8));
   var cands=[],K=stage===0?3:4;
   for(i=0;i<K;i++){var b=buildSegment(state,N);cands.push({bars:b,score:scoreSegment(state,b)+directorFit(state,b)});}
@@ -1238,7 +1292,7 @@ function createComposer(seed){
   var state={
     seed:seed.slice(),key:key,keyName:key.name,queue:[],discoveryCount:0,pendingFlash:null,
     nextId:1,g:0,stage:0,melodyBars:0,lastDeg:null,tail:null,theme:null,
-    memory:{motifs:[]},evo:null,dir:null,unit:UNIT,t:0,dynF:1
+    memory:{motifs:[]},evo:null,dir:null,unit:UNIT,t:0,dynF:1,changeAt:60,changeLast:null,changeFlash:null,thick:1,thickT:1,gT:0,centerT:null,pendingTheme:null,pendingKey:null
   };
   var dmin=-40,dmax=40,found=false;
   for(var d=-21;d<=28;d++){
@@ -1353,6 +1407,9 @@ function setKeyboardRange(lo,hi){
     if(on){for(j=0;j<vis.length;j++)if(vis[j]<bm)wb++;el.style.left=(wb*wp-bp/2)+'%';el.style.width=bp+'%';}
     el.style.display=on?'':'none';
   }
+  var wrapEl=document.getElementById('kb-wrap');
+  if(wrapEl){wrapEl.style.height=Math.max(140,Math.min(300,Math.round(4800/vis.length)))+'px';}
+  kbScale();
   kbLo=lo;kbHi=hi;
 }
 setKeyboardRange(48,84);
@@ -1399,9 +1456,11 @@ function drawViz(now){
 function kbScale(){
   var scroll=document.getElementById('kb-scroll'),wrap=document.getElementById('kb-wrap');
   if(!scroll||!wrap)return;
-  var avail=scroll.clientWidth,scale=avail>=960?1:avail/960;
-  wrap.style.transform='scale('+scale+')';
-  scroll.style.height=(wrap.offsetHeight*scale)+'px';
+  var avail=scroll.clientWidth,whites=0,i;
+  for(i=0;i<whiteKeys.length;i++)if(keyEls[whiteKeys[i].midi].style.display!=='none')whites++;
+  wrap.style.transform='none';
+  wrap.style.width=Math.max(avail,whites*24)+'px';
+  scroll.style.height=wrap.offsetHeight+'px';
 }
 vizResize();kbScale();
 window.addEventListener('resize',function(){vizResize();kbScale();});
@@ -1443,8 +1502,17 @@ function composingLabel(){
 }
 
 /* key lights (expiry handled in the frame loop, no per-note timers) */
+/* keep the sounding key in view when the keyboard is wider than the screen */
+function followKey(midi){
+  var sc=document.getElementById('kb-scroll'),el=keyEls[midi];
+  if(!sc||!el||el.style.display==='none')return;
+  var target=el.offsetLeft+el.offsetWidth/2-sc.clientWidth/2;
+  target=Math.max(0,Math.min(sc.scrollWidth-sc.clientWidth,target));
+  if(Math.abs(target-sc.scrollLeft)>sc.clientWidth*0.25)sc.scrollLeft=target;
+}
 function lightKey(midi,ms){
   setKeyActive(midi,true);
+  followKey(midi);
   if(!lit[midi])litCount++;
   lit[midi]=performance.now()+Math.max(120,ms);
 }
