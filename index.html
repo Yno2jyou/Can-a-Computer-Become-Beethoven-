@@ -1148,6 +1148,36 @@ function directorFit(state,b){
   return dirClamp(s,-4,2);
 }
 
+/* subtraction: limit how many notes sound at once, and drop a note that would sit within two
+   semitones of a note already sounding (muddy clusters). Earlier-added notes (bass, chords) win;
+   later inner / pulse / counter notes are removed first. */
+function thinTexture(state,main){
+  var MAXV=(state.evo&&state.evo.cx>0.35)?4:3,tS=[0],q,i,all=[],kept=[];
+  for(q=0;q<main.length;q++)tS.push(tS[q]+main[q].duration);
+  function melAt(t){
+    for(var z=0;z<main.length;z++){
+      var n=main[z];
+      if(n.rest||n.midi==null)continue;
+      if(tS[z]<=t+1e-6&&t<tS[z]+n.duration-1e-6)return n.midi;
+    }
+    return null;
+  }
+  for(i=0;i<main.length;i++){
+    if(!main[i].acc)continue;
+    main[i].acc.forEach(function(a,order){all.push({ref:main[i],a:a,order:order,t0:tS[i]+a.off,t1:tS[i]+a.off+a.dur});});
+  }
+  all.sort(function(x,y){return (x.t0-y.t0)||(x.order-y.order);});
+  all.forEach(function(x){
+    var sounding=kept.filter(function(y){return y.t0<=x.t0+1e-6&&x.t0<y.t1-1e-6;});
+    var mel=melAt(x.t0);
+    var voices=sounding.length+(mel!=null?1:0);
+    var mud=sounding.some(function(y){return Math.abs(y.a.midi-x.a.midi)<=2;})||(mel!=null&&Math.abs(mel-x.a.midi)<=2);
+    if(mud||voices>=MAXV)return;
+    kept.push(x);
+  });
+  main.forEach(function(ev){if(ev.acc)ev.acc=[];});
+  kept.forEach(function(x){x.ref.acc.push(x.a);});
+}
 function planStage(state){
   var stage=state.stage,stageNo=stage+1,N=segLenFor(stage),i,k;
   syncRange(state);
@@ -1183,6 +1213,7 @@ function planStage(state){
   var main=barsToEvents(state,best.bars,1,'main');
   addBass(state,best.bars,main);
   addVoices(state,best.bars,main);
+  thinTexture(state,main);
   main[0].kb=[state.klo,state.khi];
   if(!(state.tail&&state.tail.length)){main[0].tag='COMPOSING';main[0].stage=stageNo;}
   else main[0].stage=stageNo;
