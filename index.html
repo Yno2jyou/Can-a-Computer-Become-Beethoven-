@@ -305,9 +305,10 @@ function decodePiano(ctx){
   });
 }
 function pianoFor(midi){
+  /* only use a sample that is close in pitch; a far-off sample would be shifted too much and sound smeared */
   var best=null,bd=99,i,k;
   for(i=0;i<PIANO.keys.length;i++){k=PIANO.keys[i];var dd=Math.abs(k-midi);if(dd<bd){bd=dd;best=k;}}
-  return best;
+  return (best!=null&&bd<=5)?best:null;
 }
 function voice(ctx,dest,w,midi,t,dur,vel,track){
   var sk=PIANO.keys.length?pianoFor(midi):null;
@@ -337,14 +338,14 @@ function voiceSynth(ctx,dest,w,midi,t,dur,vel,track){
   osc.setPeriodicWave(w);
   var hz=440*Math.pow(2,(midi-69)/12);
   osc.frequency.value=hz;
-  var d=Math.max(0.06,dur),peak=vel*0.36*(midi>72?0.75:1);
+  var d=Math.max(0.06,dur),peak=vel*0.95*(midi>72?0.8:1);
   var dk=DECAY*(midi<48?0.8:midi>84?1.5:1+(midi-60)*0.004)*(midi>72?1.25:1);
   var vRel=Math.max(0.0003,peak*Math.exp(-dk*(d-ATT)));
   gp.setValueAtTime(0.0001,t);
   gp.linearRampToValueAtTime(peak,t+ATT);
   gp.exponentialRampToValueAtTime(vRel,t+d);
   gp.exponentialRampToValueAtTime(0.0001,t+d+REL);
-  var f0=midi>72?2400:Math.min(7000,Math.max(800,hz*5)),f1=Math.max(400,f0*0.35);
+  var f0=midi>72?2000:Math.min(4200,Math.max(700,hz*4)),f1=Math.max(350,f0*0.4);
   lp.type='lowpass';lp.Q.value=0.4;
   lp.frequency.setValueAtTime(f0,t);
   lp.frequency.exponentialRampToValueAtTime(f1,t+Math.min(d,1.5));
