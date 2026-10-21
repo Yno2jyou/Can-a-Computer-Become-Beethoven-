@@ -973,7 +973,7 @@ function barsToEvents(state,bars,vs,kind){
   for(bi=0;bi<total;bi++)for(i=0;i<bars[bi].length;i++)flat.push({n:bars[bi][i],bar:bi});
   for(k=0;k<flat.length;k++){
     var n=flat[k].n,u=n.dur;
-    if(n.rest){evs.push({rest:true,duration:u*(state.unit||UNIT),kind:kind});continue;}
+    if(n.rest){evs.push({rest:true,duration:u*(state.unit||UNIT)*(1+rand(-0.12,0.12)),kind:kind});continue;}
     var d=n.deg,m=degToMidi(d,key);
     while(m>state.khi)m-=12;
     while(m<state.klo)m+=12;
@@ -982,8 +982,11 @@ function barsToEvents(state,bars,vs,kind){
     }
     var pos=n.pos,base=pos%8===0?0.85:pos%4===0?0.76:pos%2===0?0.68:0.6;base*=1+0.15*(state.evo?state.evo.cx:0);
     var arc=0.92+0.1*Math.sin(Math.PI*(flat[k].bar*8+pos)/(total*8));
-    var v=Math.max(0.4,Math.min(0.95,base*arc+rand(-0.03,0.03)))*vs*(state.dynF||1)*(state.swell||1);
-    evs.push({midi:m,duration:u*(state.unit||UNIT),v:v,kind:kind});
+    /* slow wandering dynamics + random accents / ghost notes, so no two bars sit at the same level */
+    state.vw=(state.vw||0)*0.85+rand(-0.025,0.025);
+    var acc=Math.random()<0.14?0.12:Math.random()<0.1?-0.12:0;
+    var v=Math.max(0.35,Math.min(0.98,base*arc+state.vw+acc+rand(-0.07,0.07)))*vs*(state.dynF||1)*(state.swell||1);
+    evs.push({midi:m,duration:u*(state.unit||UNIT)*(1+rand(-0.09,0.09)),v:v,kind:kind});
   }
   for(i=evs.length-1;i>=0;i--)if(!evs[i].rest){evs[i].v*=0.9;break;}
   return evs;
