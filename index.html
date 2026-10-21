@@ -902,9 +902,9 @@ function barsToEvents(state,bars,vs,kind){
     if(key.mode==='minor'&&mod7(d)===6&&m<state.khi){
       for(var q=k+1;q<flat.length;q++)if(!flat[q].n.rest){if(flat[q].n.deg===d+1)m+=1;break;}
     }
-    var pos=n.pos,base=pos%8===0?0.85:pos%4===0?0.76:pos%2===0?0.68:0.6;
+    var pos=n.pos,base=pos%8===0?0.85:pos%4===0?0.76:pos%2===0?0.68:0.6;base*=1+0.15*(state.evo?state.evo.cx:0);
     var arc=0.92+0.1*Math.sin(Math.PI*(flat[k].bar*8+pos)/(total*8));
-    var v=Math.max(0.4,Math.min(0.95,base*arc+rand(-0.03,0.03)))*vs*(state.dynF||1);
+    var v=Math.max(0.4,Math.min(0.95,base*arc+rand(-0.03,0.03)))*vs*(state.dynF||1)*(state.swell||1);
     evs.push({midi:m,duration:u*(state.unit||UNIT),v:v,kind:kind});
   }
   for(i=evs.length-1;i>=0;i--)if(!evs[i].rest){evs[i].v*=0.9;break;}
@@ -918,7 +918,7 @@ function lastBarOf(evs){
 }
 /* keyboard grows with the piece: 25 keys (C4-C6) at the start, widening toward the full 88 */
 function kbRange(t){
-  var e=1-Math.exp(-t/240),lo=Math.round(60-39*e),hi=Math.round(84+24*e);
+  var e=1-Math.exp(-t/240),lo=Math.round(48-27*e),hi=Math.round(84+24*e);
   while(isBlack(lo))lo--;while(isBlack(hi))hi++;
   return[Math.max(21,lo),Math.min(108,hi)];
 }
@@ -931,17 +931,44 @@ function syncRange(state){
 /* left hand: root and fifth of each bar's chord, in the bass register, sounded under the melody */
 function addBass(state,bars,main){
   var key=state.key,prog=bars.prog||[],idx=0,j,k;
+  var e=state.evo?state.evo.cx:0.2;
+  function lo(m){while(m>56)m-=12;while(m<48)m+=12;return m;}
+  function add(first,off,dur,midi,v,tn){(main[first].acc=main[first].acc||[]).push({midi:midi,off:off,dur:dur,v:v,tn:tn});}
   for(j=0;j<bars.length;j++){
-    var c=bars[j].length,first=idx,end=Math.min(idx+c,main.length),tot=0,cum=0,hi=-1;
+    var c=bars[j].length,first=idx,end=Math.min(idx+c,main.length),tot=0;
     if(first>=main.length)break;
     for(k=first;k<end;k++)tot+=main[k].duration;
-    var ch=j<prog.length?prog[j]:0,b1=degToMidi(ch,key),b5=degToMidi(ch+4,key);
-    while(b1>52)b1-=12;while(b1<36)b1+=12;
-    while(b5>52)b5-=12;while(b5<36)b5+=12;
-    (main[first].acc=main[first].acc||[]).push({midi:b1,off:0,dur:tot*.46,v:.5,tn:0});
-    for(k=first;k<end;k++){if(cum>=tot/2-1e-6){hi=k;break;}cum+=main[k].duration;}
-    if(hi<0)hi=first;
-    (main[hi].acc=main[hi].acc||[]).push({midi:b5,off:0,dur:tot*.46,v:.44,tn:0});
+    var ch=j<prog.length?prog[j]:0,root=lo(degToMidi(ch,key)),third=lo(degToMidi(ch+2,key)),fifth=lo(degToMidi(ch+4,key));
+    var sev=ch===4?lo(degToMidi(ch+6,key)):null;       /* dominant chord: add the minor seventh */
+    if(e<0.35){
+      /* calm: sustained root and fifth */
+      add(first,0,tot*.46,root,.5,0);
+      add(first,tot*.5,tot*.46,fifth,.44,0);
+      [root,third,fifth].forEach(function(m){add(first,0,tot*.4,m,.3,1);});
+    }else{
+      /* left hand as a second melody: contrary motion to the right hand, struck at the same moment.
+         A note that would form a minor 2nd, tritone or major 7th with the melody is moved by a step. */
+      var mean=0,cnt=0,i;
+      for(i=0;i<c;i++){if(!bars[j][i].rest){mean+=bars[j][i].deg;cnt++;}}
+      mean=cnt?mean/cnt:0;
+      for(i=0;i<c;i++){
+        var nb=bars[j][i],R=main[first+i];
+        if(nb.rest||!R||R.rest||R.midi==null)continue;
+        var target=Math.round(2*mean-nb.deg),sh=[0,1,-1,2,-2],s,placed=false;
+        for(s=0;s<sh.length&&!placed;s++){
+          var m=lo(degToMidi(target+sh[s],key)),iv=((m-R.midi)%12+12)%12;
+          if(iv===1||iv===11||(iv===6&&e<0.6))continue;
+          add(first+i,0,R.duration,m,.5,0);placed=true;
+        }
+      }
+      /* a chord on every bar's first beat, so the sound is never a single line */
+      [root,fifth,third].forEach(function(m){add(first,0,tot*.4,m,.4,1);});
+      if(e>=0.7){
+        /* bold: block chords on the strong beats, in the brighter timbre */
+        var blk=[root,fifth,third];if(sev!=null)blk.push(sev);
+        blk.forEach(function(m){add(first,0,tot*.45,m,.5,1);});
+      }
+    }
     idx+=c;
   }
 }
@@ -971,7 +998,7 @@ function addVoices(state,bars,main){
         var x=melAt(t);
         if(x==null)continue;
         var iv=((c-x)%12+12)%12;
-        if(iv===1||iv===6||iv===11){ok=false;break;}
+        if(cx>0.6?(iv===1||iv===11):(iv===1||iv===6||iv===11)){ok=false;break;}
       }
       if(ok)return c;
     }
@@ -987,7 +1014,7 @@ function addVoices(state,bars,main){
     for(k=first;k<end;k++){
       var L=main[k];
       if(L.rest||L.midi==null||L.duration<.5)continue;
-      var cm=L.midi-4;while(cm<40)cm+=12;
+      var cm=L.midi-4;while(cm<48)cm+=12;
       var cc=fitSpan(cm,tS[k],tS[k]+L.duration*.9,SH);
       if(cc!=null)(L.acc=L.acc||[]).push({midi:cc,off:0,dur:L.duration*.9,v:.3*(L.v||.7),tn:1});
     }
@@ -1045,6 +1072,7 @@ function evoTempo(state,E){
   var tgt=.38-.2*E.T/100;
   if(E.type==='collapse')tgt=.46;
   var u=.5*(state.unit||UNIT)+.5*tgt;
+  u*=1+(0.02+0.05*E.cx)*rand(-1,1);
   state.unit=Math.max(.12,Math.min(.8,u));
 }
 
@@ -1151,6 +1179,7 @@ function planStage(state){
   }
   directorRest(state,q);
   /* 3) the continuation that is adopted into the finished melody */
+  state.swell=1+(0.08+0.22*(state.evo?state.evo.cx:0.1))*rand(-1,1);
   var main=barsToEvents(state,best.bars,1,'main');
   addBass(state,best.bars,main);
   addVoices(state,best.bars,main);
@@ -1295,7 +1324,7 @@ function setKeyboardRange(lo,hi){
   }
   kbLo=lo;kbHi=hi;
 }
-setKeyboardRange(60,84);
+setKeyboardRange(48,84);
 function setKeyActive(midi,active){
   var el=keyEls[midi];if(!el)return;
   if(active)el.classList.add('active');else el.classList.remove('active');
@@ -1406,10 +1435,11 @@ function pumpGen(){
   while(gen.t<now+look&&guard++<600){
     composer.t=gen.t-gen.startT;
     var ev=composeNext(composer),t=gen.t,d=ev.duration;
+    var jit=(0.004+0.012*(composer.evo?composer.evo.cx:0.1))*rand(-1,1);
     var rec={duration:d,at:t};
     if(ev.rest)rec.rest=true;
-    else{rec.midi=ev.midi;rec.v=ev.v;schedNote(ev.midi,t,d,ev.v);}
-    if(ev.acc){rec.acc=ev.acc;for(var ai=0;ai<ev.acc.length;ai++){var a=ev.acc[ai];schedNote(a.midi,t+a.off,a.dur,a.v,accWave(a.tn));}}
+    else{rec.midi=ev.midi;rec.v=ev.v;schedNote(ev.midi,t+jit,d,ev.v);}
+    if(ev.acc){rec.acc=ev.acc;for(var ai=0;ai<ev.acc.length;ai++){var a=ev.acc[ai];schedNote(a.midi,t+a.off+jit,a.dur,a.v,accWave(a.tn));visQ.push({t:t+a.off+jit,dur:a.dur,midi:a.midi,rest:false,gen:false});}visQ.sort(function(x,y){return x.t-y.t;});}
     gen.evs.push(rec);
     visQ.push({t:t,dur:d,rest:ev.rest,midi:ev.midi,gen:true,tag:ev.tag,stage:ev.stage,mem:ev.mem,flash:ev.flash,finBars:ev.finBars,kb:ev.kb});
     if(ev.segEnd){ev.segEnd.lastAt=t;gen.segs.push(ev.segEnd);}
@@ -1453,7 +1483,7 @@ function startGeneration(){
   unlockAudio();
   if(!AC){setCounterHTML('<span>AUDIO NOT SUPPORTED</span>');return;}
   keepOn();
-  setKeyboardRange(60,84);
+  setKeyboardRange(48,84);
   composer=createComposer(inputNotes.slice());
   gen={active:false,t:0,startT:0,evs:[],segs:[]};
   visQ=[];
@@ -1638,7 +1668,7 @@ function reset(){
   gen.active=false;
   stopReplay(true);stopTicker();keepOff();setMediaSession(false);
   silenceAll();visQ=[];dragging=null;
-  inputNotes=[];clearAllKeyLights();setKeyboardRange(60,84);
+  inputNotes=[];clearAllKeyLights();setKeyboardRange(48,84);
   for(var m in keyEls)setKeySeed(m,false);
   composer=null;
   setTrack('process',[]);setTrack('final',[]);setTrack('shared',[]);
