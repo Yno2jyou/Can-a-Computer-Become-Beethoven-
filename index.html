@@ -222,15 +222,15 @@ function makeIR(ctx,sec){
 }
 function makeChain(ctx){
   var input=ctx.createGain();input.gain.value=1.0;
-  var tone=ctx.createBiquadFilter();tone.type='lowpass';tone.frequency.value=5200;tone.Q.value=0.5;
+  var tone=ctx.createBiquadFilter();tone.type='lowpass';tone.frequency.value=7500;tone.Q.value=0.5;
   /* stage 1: even out loud/soft parts (only the upper range is pulled down) */
   var comp=ctx.createDynamicsCompressor();
-  comp.threshold.value=-20;comp.knee.value=10;comp.ratio.value=3;comp.attack.value=0.01;comp.release.value=0.2;
+  comp.threshold.value=-18;comp.knee.value=8;comp.ratio.value=2.5;comp.attack.value=0.01;comp.release.value=0.2;
   /* makeup: raises the whole piece well above the old level */
-  var makeup=ctx.createGain();makeup.gain.value=6.0;
+  var makeup=ctx.createGain();makeup.gain.value=10.0;
   var bus=ctx.createGain();bus.gain.value=1;
   var verb=ctx.createConvolver();verb.buffer=makeIR(ctx,1.8);
-  var wet=ctx.createGain();wet.gain.value=0.2;
+  var wet=ctx.createGain();wet.gain.value=0.12;
   /* stage 2: safety limiter so the louder level never clips */
   var lim=ctx.createDynamicsCompressor();
   lim.threshold.value=-1;lim.knee.value=0;lim.ratio.value=20;lim.attack.value=0.001;lim.release.value=0.1;
